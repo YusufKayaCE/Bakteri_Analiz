@@ -44,9 +44,9 @@ Akademik özet belge: **`AMR_Tez_Dokuman.pdf`**.
 
 ## 📁 Dosya yapısı
 ```
-src/v36.py                 # Ana pipeline (v35 + SMOTE-off + adaptif kalibrasyon)
-src/v35.py                 # Bir önceki sürüm
-src/*_cell.txt             # Colab veri-çekme / büyütme hücreleri (BV-BRC, QRDR, PD)
+src/v36.py                 # Ana pipeline (SMOTE-off + adaptif kalibrasyon; tek dosya, self-contained)
+src/reporting_module.py    # Opsiyonel akademik rapor üretimi (v36 import eder)
+src/*_cell.txt             # Colab veri-çekme / büyütme hücreleri (BV-BRC, QRDR, NCBI PD)
 make_amr_pdf.py            # Tez/rapor PDF üretici
 AMR_Tez_Dokuman.pdf        # Problem / literatür / dataset / çözüm belgesi
 web/AMR_v36_dashboard.html # Etkileşimli sonuç panosu (standalone)
