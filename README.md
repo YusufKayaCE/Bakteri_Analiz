@@ -64,7 +64,5 @@ requirements.txt
 
 ## 📚 Başlıca referanslar
 - Kim JI ve ark. (2022) *Clin Microbiol Rev* 35(3):e00179-21 — ana çerçeve.
-- Nguyen M ve ark. (2019) *J Clin Microbiol* 57(2) — Salmonella XGBoost MIC.
 - Davis JJ ve ark. (2016) *Sci Rep* 6:27930 — PATRIC/RAST.
-- Lees JA ve ark. (2023/24) *Microbial Genomics* — Klebsiella MIC, popülasyon yapısı.
-- Aldred KJ ve ark. (2014) *Biochemistry* 53(10) — QRDR / kinolon direnci.
+
