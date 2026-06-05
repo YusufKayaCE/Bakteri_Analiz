@@ -1,0 +1,150 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# NCBI PATHOGEN DETECTION SALMONELLA — Bizimle örtüşme analizi
+# ═══════════════════════════════════════════════════════════════════════════
+# Tek Colab hücresi. ~3 dakika.
+#
+# Hedef: 419,108 NCBI Pathogen Salmonella'sından kaç tanesi
+#        bizim 2,435 Salmonella'mızla BioSample bazında örtüşüyor?
+#
+# Karar matrisi:
+#   - Örtüşme > 1,500 → AMR genotype feature entegrasyonu (Strateji A)
+#   - Örtüşme < 1,500 → Sadece external karşılaştırma (Strateji C)
+# ═══════════════════════════════════════════════════════════════════════════
+
+from google.colab import drive
+drive.mount("/content/drive", force_remount=True)
+
+import os
+import pandas as pd
+from collections import Counter
+import re
+
+DRIVE_BASE = "/content/drive/MyDrive/amr_v29/data/processed"
+PD_CSV     = "/content/drive/MyDrive/Cleaned_Pathogen_detection_Salmonella_enterica.csv"
+# Eğer dosya farklı yerdeyse: kullanıcı yükledikten sonra düzelt
+
+# ── Yükleme yardımcısı ─────────────────────────────────────────────────────
+if not os.path.exists(PD_CSV):
+    print(f"❌ CSV bulunamadı: {PD_CSV}")
+    print(f"   Yapacağın: bilgisayardaki CSV'yi Drive'a yükle:")
+    print(f"   /content/drive/MyDrive/Cleaned_Pathogen_detection_Salmonella_enterica.csv")
+    raise FileNotFoundError("Önce CSV'yi Drive'a yükle")
+
+LABELS_CSV    = os.path.join(DRIVE_BASE, "v2_multilabel_labels.csv")
+METADATA_PQT  = os.path.join(DRIVE_BASE, "v35_genome_metadata.parquet")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1) İKİ SET'I YÜKLE
+# ─────────────────────────────────────────────────────────────────────────
+print("📂 Yükleniyor...")
+
+pd_df = pd.read_csv(PD_CSV, low_memory=False)
+print(f"   NCBI Pathogen Detection: {len(pd_df):,} satır")
+
+our_labels = pd.read_csv(LABELS_CSV)
+our_sal = our_labels[
+    our_labels["Bacteria_Type"].astype(str).str.contains("salmon", case=False, na=False)
+]
+print(f"   Bizim Salmonella: {len(our_sal):,} satır")
+
+# Bizim metadata'yı yükle (BioSample bilgisi orada olabilir)
+biosample_col = None
+if os.path.exists(METADATA_PQT):
+    meta = pd.read_parquet(METADATA_PQT)
+    print(f"   Metadata parquet: {len(meta):,} satır, sütunlar: {list(meta.columns)}")
+    # BioSample alanı var mı?
+    for c in meta.columns:
+        if "biosample" in c.lower() or "sample_acc" in c.lower():
+            biosample_col = c
+            break
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2) ÖRTÜŞMEK İÇİN ANAHTAR ALANLARI ÇIKAR
+# ─────────────────────────────────────────────────────────────────────────
+print("\n🔗 Eşleştirme kontrolü:")
+
+# Pathogen Detection BioSample'lar (SAMN...)
+pd_biosamples = set(pd_df["BioSample"].dropna().astype(str).str.strip())
+print(f"   NCBI PD BioSample sayısı: {len(pd_biosamples):,}")
+print(f"   Örnek: {list(pd_biosamples)[0] if pd_biosamples else 'YOK'}")
+
+# Bizim BioSample varsa
+if biosample_col and meta is not None:
+    our_biosamples = set(meta[biosample_col].dropna().astype(str).str.strip())
+    print(f"   Bizim BioSample sayısı: {len(our_biosamples):,}")
+    overlap = pd_biosamples & our_biosamples
+    print(f"\n   ✨ DOĞRUDAN ÖRTÜŞME: {len(overlap):,}")
+else:
+    print("\n   ⚠️  Bizim metadata'da BioSample sütunu yok")
+    print("       BV-BRC API'den ek çekim gerek")
+
+# Alternatif: Isolate identifiers içinde SRA accession (SRS) ara
+# Bizim genome_id'ler 5xxx.x formatında değil, BV-BRC formatında
+# BV-BRC'nin sample_accession sütunu varsa kullanılır
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3) AMR GENOTYPE ANALİZİ
+# ─────────────────────────────────────────────────────────────────────────
+print("\n🧬 AMR Genotype analizi (kanonik direnç imzaları):")
+
+# AMR genotypes sütununu parse et
+amr_col = "AMR genotypes"
+all_genes = []
+for entry in pd_df[amr_col].dropna().sample(min(50000, len(pd_df)), random_state=42):
+    if pd.isna(entry) or not entry:
+        continue
+    # "gen=COMPLETE,gen2=PARTIAL" formatı
+    parts = str(entry).split(",")
+    for p in parts:
+        gene = p.split("=")[0].strip()
+        if gene:
+            all_genes.append(gene)
+
+gene_freq = Counter(all_genes)
+print(f"\n📊 En yaygın 20 AMR gen (50k örnek):")
+for gene, freq in gene_freq.most_common(20):
+    pct = freq / 50000 * 100
+    bar = "█" * min(int(pct/2), 30)
+    print(f"   {gene:30s} {freq:>6,} ({pct:>5.1f}%) {bar}")
+
+# Bizim 5 antibiyotiğimize uygun direnç gen pattern'leri
+ANTI_GENE_PATTERNS = {
+    "ciprofloxacin": ["qnr", "gyrA", "parC", "oqx"],
+    "ampicillin":    ["blaTEM", "blaSHV"],
+    "gentamicin":    ["aac(3)", "aac(6')", "aph(2'')", "ant(2'')"],
+    "tetracycline":  ["tet("],
+    "ceftazidime":   ["blaCTX", "blaCMY", "blaSHV"],
+}
+
+print("\n🎯 Antibiyotik bazlı pseudo-label dağılımı (tüm 410k):")
+amr_all = pd_df[amr_col].fillna("").astype(str)
+for anti, patterns in ANTI_GENE_PATTERNS.items():
+    pat = "|".join(re.escape(p) for p in patterns)
+    has_r = amr_all.str.contains(pat, regex=True, case=False).sum()
+    no_r  = len(pd_df) - has_r
+    print(f"   {anti:15s}: R (gen var)={has_r:>6,} ({has_r/len(pd_df)*100:5.1f}%) | "
+          f"S (gen yok)={no_r:>6,}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 4) KARAR
+# ─────────────────────────────────────────────────────────────────────────
+print("\n" + "=" * 60)
+print("🎯 KARAR")
+print("=" * 60)
+
+if biosample_col and 'overlap' in dir() and len(overlap) > 1500:
+    print(f"\n✅ STRATEJİ A — entegrasyon:")
+    print(f"   {len(overlap):,} ortak BioSample bulundu")
+    print(f"   AMR genotype'ları yeni feature olarak Salmonella'ya eklenir")
+    print(f"   Beklenen: +%2-5 AUC iyileşmesi")
+elif biosample_col and 'overlap' in dir() and len(overlap) > 100:
+    print(f"\n🟡 STRATEJİ C — kısmi external validation:")
+    print(f"   {len(overlap):,} ortak (az ama anlamlı)")
+    print(f"   Bizim Salmonella modelimizi bu set üzerinde test ederiz")
+else:
+    print(f"\n🟡 STRATEJİ C — sadece referans:")
+    print(f"   Doğrudan eşleştirme zor, ama AMR genotype dağılımı tez için değerli")
+    print(f"   Paper: 'Modelimizin SHAP top genleri NCBI PD AMRFinderPlus")
+    print(f"          ile %X uyumlu' iddası yazılır")
+
+print("\n   Detay analiz için sonuçları paylaş, hangi stratejiyi seçeceğiz birlikte karar verelim.")

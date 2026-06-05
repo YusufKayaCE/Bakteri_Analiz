@@ -1,0 +1,242 @@
+🚀 GPU: NVIDIA L4 → XGBoost CUDA+hist
+📐 DNA K-mer : k=21, hash=16,384 [2^14]
+📐 AA  K-mer : k=4, hash=4,096 [2^12]
+💾 Kullanılabilir RAM : 52.8 GB
+📁 Labels    : /content/drive/MyDrive/amr_v29/data/processed/v2_multilabel_labels.csv
+📁 Seq Cache : /content/drive/MyDrive/amr_v29/data/processed/v26_sequences.parquet
+🏥 V36 KLİNİK AMR TAHMİN PANELİ [v35 + SMOTE-off + adaptif kalibrasyon]
+   v35-FIX-1: VME-öncelikli klinik eşik (F1-max yerine)
+   v35-FIX-2: Mutual-info FS (DNA top-1000, AA top-500)
+   v35-FIX-3: pos_weight cap kaldırıldı, dinamik aralık
+   v35-FIX-4: Stacked ensemble (meta-LR, OOF preds)
+   v35-FIX-5: In-pipeline isotonic kalibrasyon + kalibre-eşik
+   v35-FIX-6: AA k-mer fallback açık uyarı
+   v35-FIX-7: Optuna recall ağırlığı 5x
+   + tüm v29/v34 düzeltmeleri korundu (KMER-FIX, PATH-FIX, FIX-1..5)
+
+📊 Örnekleme Bias Raporu...
+   Yıl: nan(30.1%), 2014.0(7.8%), 2012.0(7.0%)
+   Ülke: USA(18.5%), Norway(13.8%), United Kingdom(13.1%)
+   Bakteri: ECOLI(35.5%), SALMONELLA(29.5%), KLEBSIELLA(17.0%)
+   ST: nan(7.2%), 19.0(6.5%), 1.0(4.1%)
+
+💊 Antibiyotikler  : ciprofloxacin, gentamicin, ampicillin, ceftazidime, tetracycline
+♻️  SMOTE          : devre dışı
+🦠 Per-Species     : aktif [v27-C1]
+🌍 Coğrafya-CV     : Country [v27-C2]
+
+📦 Gen önbelleği: v17_amr_genes_cache.csv (2,757,059 kayıt)
+   🧬 [PD-salmonella] 59 feature (6 QRDR), 1,245 eşleşme
+      ⭐ pd_sal_gyrA_S83F : 93   ⭐ pd_sal_gyrA_D87N : 85   ⭐ pd_sal_parC_S80R : 83
+   🧬 [PD-klebsiella] 72 feature (6 QRDR), 1,013 eşleşme
+      ⭐ pd_kle_parC_S80I : 696  ⭐ pd_kle_gyrA_S83I : 655  ⭐ pd_kle_gyrA_D87N : 479
+   🧬 [PD-pseudomonas] 55 feature (5 QRDR), 750 eşleşme
+      ⭐ pd_pse_gyrA_T83I : 305  ⭐ pd_pse_parC_S87L : 184  ⭐ pd_pse_gyrA_D87N : 39
+   🧬 [PD-staphylococcus] 19 feature (3 QRDR), 245 eşleşme
+      ⭐ pd_sta_gyrA_S84L : 138  ⭐ pd_sta_parC_S80Y : 123  ⭐ pd_sta_parC_S80F : 18
+   🧬 [PD-escherichia] 25 feature (5 QRDR), 49 eşleşme
+      ⭐ pd_eco_gyrA_S83L : 45   ⭐ pd_eco_gyrA_D87N : 42   ⭐ pd_eco_parC_S80I : 42
+   🎯 [v35-STAGE4-PD] TOPLAM: 230 feature, 25 QRDR mutasyon (Aldred 2014, Hooper 2015)
+
+✅ Birleştirme: 12,013 genom | 3,574 özellik
+===========================================================================
+⚙️  PER-SPECIES MODELLER EĞİTİLİYOR [v27-C1]...
+===========================================================================
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: ECOLI (3,294 genom)
+════════════════════════════════════════════════════════════
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] CIPROFLOXACIN
+   Dağılım → Duyarlı:2194 | Dirençli:619 (78.0%)
+   📐 İmbalance: 3.5x → Eşik alt sınırı: 0.22
+   🎯 En İyi: pos_weight=5.23 | n_est=550 | device=cuda
+   🎯 Eşikler → CV-med=0.437 | Test=0.221 (eer) | Final=0.221 | Cal=True
+   🎭 Ensemble: F1=0.729 | AUC=0.915 | thr=0.176 (eer) | Rec=0.85 Spec=0.87 VME=15.3% ME=13.4%
+   Test F1: 0.712 | Recall:0.839 | AUC:0.902 | AUPRC:0.730 | Spec:0.854 | PPV:0.619 | NPV:0.949
+   FDA/CLSI: VME=16.1% | ME=14.6%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1206 | Kalibre=0.0901
+   🧬 Top Gen (SHAP): DNA gyrase subunit A (0.543) · DNA topoisomerase IV subunit A (0.410) ·
+      CTX-M ESBL (0.262) · Mph(A) makrolid (0.122)
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] GENTAMICIN
+   Dağılım → Duyarlı:2599 | Dirençli:239 (91.6%)
+   📐 İmbalance: 10.9x → Eşik alt sınırı: 0.15
+   🎯 En İyi: pos_weight=14.06 | n_est=200
+   🎯 Eşikler → CV-med=0.432 | Test=0.060 (eer) | Final=0.060
+   🎭 Ensemble: AUC=0.901 | Rec=0.85 Spec=0.83 VME=14.6% ME=16.9%
+   FDA/CLSI: VME=20.8% | ME=22.5%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1238 | Kalibre=0.0423
+   🧬 Top Gen (SHAP): AAC(3)-II..X aminoglikozit asetiltransferaz (0.323) · sul (0.143) · ANT(3'')-Ia (0.127)
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] AMPICILLIN
+   Dağılım → Duyarlı:1276 | Dirençli:1132 (53.0%)
+   📐 İmbalance: 1.1x
+   🎯 En İyi: pos_weight=3.92 | n_est=400
+   🎯 Eşikler → CV-med=0.638 | Test=0.427 (eer) | Final=0.427
+   🎭 Ensemble: F1=0.873 | AUC=0.926 | Rec=0.86 Spec=0.90 VME=13.7% ME=10.2%
+   FDA/CLSI: VME=14.5% | ME=14.9%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.2110 | Kalibre=0.1022
+   🧬 Top Gen (SHAP): TEM beta-laktamaz (0.482) · sul (0.179) · CTX-M ESBL (0.159) · APH(6) (0.124)
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] CEFTAZIDIME
+   Dağılım → Duyarlı:2377 | Dirençli:308 (88.5%)
+   📐 İmbalance: 7.7x → Eşik alt sınırı: 0.15
+   🎯 En İyi: pos_weight=11.59 | n_est=400
+   🎯 Eşikler → CV-med=0.442 | Test=0.075 (eer) | Final=0.075
+   🎭 Ensemble: AUC=0.940 | Rec=0.84 Spec=0.86 VME=16.1% ME=13.9%
+   FDA/CLSI: VME=17.7% | ME=15.4%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1633 | Kalibre=0.0610
+   🧬 Top Gen (SHAP): CTX-M ESBL (0.344) · CMY Class C beta-laktamaz (0.153) · sul (0.113) · gyrA (0.108)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: KLEBSIELLA (2,252 genom)
+════════════════════════════════════════════════════════════
+──────────────────────────────────────────────────────────────────────
+💊 [KLEBSIELLA] CIPROFLOXACIN
+   Dağılım → Duyarlı:670 | Dirençli:1258 (65.2%)
+   🎯 En İyi: pos_weight=3.03 | n_est=200
+   🎯 Eşikler → CV-med=0.638 | Test=0.638 (eer) | Final=0.638
+   🎭 Ensemble: F1=0.927 | AUC=0.956 | thr=0.628 (balanced_full) | Rec=0.90 Spec=0.92 VME=9.9% ME=8.2%
+   FDA/CLSI: VME=13.5% | ME=13.4%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1431 | Kalibre=0.0793
+   🧬 Top Gen (SHAP): pd_kle_parC_S80I (0.319) · pd_kle_gyrA_S83I (0.186) · ANT(3'')-Ia (0.112) · CTX-M (0.089)
+
+──────────────────────────────────────────────────────────────────────
+💊 [KLEBSIELLA] GENTAMICIN
+   Dağılım → Duyarlı:1421 | Dirençli:714 (66.6%)
+   🎯 En İyi: pos_weight=3.80 | n_est=450
+   🎭 Ensemble: F1=0.852 | AUC=0.958 | Rec=0.89 Spec=0.90 VME=11.2% ME=9.9%
+   FDA/CLSI: VME=11.9% | ME=11.6%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.0938 | Kalibre=0.0626
+   🧬 Top Gen (SHAP): pd_kle_aac(3)-IIe (0.896) · AAC(3)-II..X (0.681) · CTX-M (0.167) · blaCTX-M-15 (0.157)
+
+──────────────────────────────────────────────────────────────────────
+💊 [KLEBSIELLA] CEFTAZIDIME
+   Dağılım → Duyarlı:574 | Dirençli:1355 (70.2%)
+   🎯 En İyi: pos_weight=3.60 | n_est=200
+   🎭 Ensemble: F1=0.936 | AUC=0.961 | thr=0.719 | Rec=0.92 Spec=0.90 VME=8.1% ME=10.4%
+   FDA/CLSI: VME=10.0% | ME=10.4%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1148 | Kalibre=0.0612
+   🧬 Top Gen (SHAP): pd_kle_parC_S80I (0.225) · CTX-M (0.163) · sul (0.155) · pd_kle_fosA (0.108)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: PSEUDOMONAS (795 genom)
+════════════════════════════════════════════════════════════
+──────────────────────────────────────────────────────────────────────
+💊 [PSEUDOMONAS] CIPROFLOXACIN
+   Dağılım → Duyarlı:242 | Dirençli:244 (50.2%)
+   🎯 En İyi: pos_weight=3.36 | n_est=200
+   🎭 Ensemble: F1=0.825 | AUC=0.903 | Rec=0.82 Spec=0.84 VME=18.4% ME=16.3%
+   FDA/CLSI: VME=14.3% | ME=18.4%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1854 | Kalibre=0.1099
+   🧬 Top Gen (SHAP): pd_pse_gyrA_T83I (0.494) · pd_pse_parC_S87L (0.134) · pd_pse_sul1 (0.118)
+
+──────────────────────────────────────────────────────────────────────
+💊 [PSEUDOMONAS] CEFTAZIDIME   (en zayıf model — veri/mekanizma kısıtı)
+   Dağılım → Duyarlı:333 | Dirençli:215 (60.8%)
+   🎯 En İyi: pos_weight=3.34 | n_est=500
+   🎭 Ensemble: F1=0.650 | AUC=0.795 | Rec=0.60 Spec=0.84 VME=39.5% ME=16.4%
+   FDA/CLSI: VME=25.6% | ME=29.9%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.2230 | Kalibre=0.1640
+   🧬 Top Gen (SHAP): pd_pse_sul1 (0.303) · pd_pse_gyrA_T83I (0.292) · pd_pse_parC_S87L (0.243) · nalD (0.126)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: SALMONELLA (2,419 genom)
+════════════════════════════════════════════════════════════
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] CIPROFLOXACIN
+   Dağılım → Duyarlı:1584 | Dirençli:415 (79.2%)
+   🎯 En İyi: pos_weight=5.72 | n_est=350
+   🎭 Ensemble: F1=0.744 | AUC=0.940 | Rec=0.89 Spec=0.87 VME=10.8% ME=13.2%
+   FDA/CLSI: VME=12.0% | ME=12.0%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1003 | Kalibre=0.0650
+   🧬 Top Gen (SHAP): pd_sal_gyrA_S83F (0.408) · gyrA (0.228) · pd_sal_mdsB (0.227) · MexP efflux (0.166)
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] GENTAMICIN
+   Dağılım → Duyarlı:1569 | Dirençli:108 (93.6%)
+   📐 İmbalance: 14.5x → Eşik alt sınırı: 0.15
+   🎯 En İyi: pos_weight=12.78 | n_est=450
+   🎭 Ensemble: AUC=0.901 | Rec=0.86 Spec=0.89 VME=13.6% ME=10.5%
+   FDA/CLSI: VME=18.2% | ME=19.7%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.0980 | Kalibre=0.0349
+   🧬 Top Gen (SHAP): ANT(3'')-Ia (0.294) · pd_sal_sul1 (0.115) · pd_sal_blaTEM-1 (0.090)
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] AMPICILLIN
+   Dağılım → Duyarlı:1668 | Dirençli:701 (70.4%)
+   🎯 En İyi: pos_weight=3.92 | n_est=200
+   🎭 Ensemble: F1=0.707 | AUC=0.897 | Rec=0.79 Spec=0.81 VME=20.7% ME=18.9%
+   FDA/CLSI: VME=20.0% | ME=19.5%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.1540 | Kalibre=0.1009
+   🧬 Top Gen (SHAP): pd_sal_blaTEM-1 (0.362) · pd_sal_floR (0.195) · pd_sal_blaCMY-2 (0.179) · TEM (0.159)
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] TETRACYCLINE
+   Dağılım → Duyarlı:1307 | Dirençli:537 (70.9%)
+   🎯 En İyi: pos_weight=3.44 | n_est=350
+   🎭 Ensemble: F1=0.803 | AUC=0.937 | Rec=0.86 Spec=0.89 VME=14.0% ME=11.5%
+   FDA/CLSI: VME=14.0% | ME=12.2%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.0904 | Kalibre=0.0722
+   🧬 Top Gen (SHAP): pd_sal_tet(A) (0.636) · pd_sal_tet(B) (0.272) · sul (0.258) · pd_sal_mdsB (0.206)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: STAPHYLOCOCCUS (3,253 genom)
+════════════════════════════════════════════════════════════
+──────────────────────────────────────────────────────────────────────
+💊 [STAPHYLOCOCCUS] CIPROFLOXACIN   ⭐ EN İYİ MODEL
+   Dağılım → Duyarlı:1651 | Dirençli:1222 (57.5%)
+   🎯 En İyi: pos_weight=3.99 | n_est=450
+   🎭 Ensemble: F1=0.897 | AUC=0.961 | thr=0.286 (balanced_full) | Rec=0.90 Spec=0.92 VME=9.8% ME=8.2%
+   FDA/CLSI: VME=9.8% | ME=8.5%   Klinik Durum: 🟢
+   🎯 Brier: Ham=0.1054 | Kalibre=0.0641
+   🧬 Top Gen (SHAP): Topoizomeraz IV grlA (0.579) · MecR1 (0.357) · PBP2a/MecA (0.266) · gyrA (0.186)
+
+──────────────────────────────────────────────────────────────────────
+💊 [STAPHYLOCOCCUS] GENTAMICIN
+   Dağılım → Duyarlı:2605 | Dirençli:288 (90.0%)
+   🎯 En İyi: pos_weight=13.36 | n_est=250
+   🎭 Ensemble: AUC=0.940 | Rec=0.84 Spec=0.92 VME=15.5% ME=7.9%
+   FDA/CLSI: VME=12.1% | ME=12.3%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.0802 | Kalibre=0.0267
+   🧬 Top Gen (SHAP): AAC(6')-Ib / APH(2'') (0.576) · AAC(6')-Ie-APH(2'')-Ia (0.167) · Tet(M) (0.165)
+
+──────────────────────────────────────────────────────────────────────
+💊 [STAPHYLOCOCCUS] TETRACYCLINE
+   Dağılım → Duyarlı:2222 | Dirençli:394 (84.9%)
+   🎯 En İyi: pos_weight=8.39 | n_est=500
+   🎭 Ensemble: F1=0.693 | AUC=0.959 | Rec=0.87 Spec=0.89 VME=12.7% ME=11.5%
+   FDA/CLSI: VME=11.4% | ME=11.0%   Klinik Durum: 🟠
+   🎯 Brier: Ham=0.0813 | Kalibre=0.0407
+   🧬 Top Gen (SHAP): Tet(K) MFS efflux (0.783) · Tet(M) ribozomal koruma (0.294) · Tet(38) (0.175)
+
+============================================================================================================================================
+        V36 FİNAL PERFORMANS TABLOSU  [v35 + SMOTE-off + adaptif kalibrasyon]
+============================================================================================================================================
+           Tür   Antibiyotik  N_dir  XGB_AUC ENS_AUC   VME%   ME%  Brier_Cal  Durum
+         ECOLI CIPROFLOXACIN    619    0.902   0.915  16.1  14.6    0.0901    🟠
+         ECOLI    GENTAMICIN    239    0.907   0.901  20.8  22.5    0.0423    🟠
+         ECOLI    AMPICILLIN   1132    0.906   0.926  14.5  14.9    0.1022    🟠
+         ECOLI   CEFTAZIDIME    308    0.917   0.940  17.7  15.4    0.0610    🟠
+    KLEBSIELLA CIPROFLOXACIN   1258    0.944   0.956  13.5  13.4    0.0793    🟠
+    KLEBSIELLA    GENTAMICIN    714    0.948   0.958  11.9  11.6    0.0626    🟠
+    KLEBSIELLA   CEFTAZIDIME   1355    0.953   0.961  10.0  10.4    0.0612    🟠
+   PSEUDOMONAS CIPROFLOXACIN    244    0.896   0.903  14.3  18.4    0.1099    🟠
+   PSEUDOMONAS   CEFTAZIDIME    215    0.781   0.795  25.6  29.9    0.1640    🟠
+    SALMONELLA CIPROFLOXACIN    415    0.946   0.940  12.0  12.0    0.0650    🟠
+    SALMONELLA    GENTAMICIN    108    0.872   0.901  18.2  19.7    0.0349    🟠
+    SALMONELLA    AMPICILLIN    701    0.895   0.897  20.0  19.5    0.1009    🟠
+    SALMONELLA  TETRACYCLINE    537    0.937   0.937  14.0  12.2    0.0722    🟠
+STAPHYLOCOCCUS CIPROFLOXACIN   1222    0.961   0.961   9.8   8.5    0.0641    🟢
+STAPHYLOCOCCUS    GENTAMICIN    288    0.939   0.940  12.1  12.3    0.0267    🟠
+STAPHYLOCOCCUS  TETRACYCLINE    394    0.960   0.959  11.4  11.0    0.0407    🟠
+
+🏥 Klinik Hazır: 1 🟢 + 15 🟠 / 16 toplam
+   16 modelden 14'ü VME ≤ %20 VE ME ≤ %20 aralığında.
+   Ortalama ensemble AUC ≈ 0.92 | En iyi: S. aureus / ciprofloxacin (AUC 0.961, VME 9.8%, ME 8.5%)
+   Veri: 12,013 genom · 3,574 özellik · 5 tür × 5 antibiyotik
+   SMOTE kapalı + adaptif kalibrasyon (N<1000 → sigmoid) · GroupKFold (coğrafya) CV

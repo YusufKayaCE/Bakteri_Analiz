@@ -1,0 +1,833 @@
+🚀 GPU: NVIDIA L4 → XGBoost CUDA+hist
+📐 DNA K-mer : k=21, hash=16,384 [2^14]
+📐 AA  K-mer : k=4, hash=4,096 [2^12]
+💾 Kullanılabilir RAM : 52.8 GB
+📁 Labels    : /content/drive/MyDrive/amr_v29/data/processed/v2_multilabel_labels.csv
+📁 Seq Cache : /content/drive/MyDrive/amr_v29/data/processed/v26_sequences.parquet
+🏥 V36 KLİNİK AMR TAHMİN PANELİ [v35 + SMOTE-off + adaptif kalibrasyon]
+   v35-FIX-1: VME-öncelikli klinik eşik (F1-max yerine)
+   v35-FIX-2: Mutual-info FS (DNA top-1000, AA top-500)
+   v35-FIX-3: pos_weight cap kaldırıldı, dinamik aralık
+   v35-FIX-4: Stacked ensemble (meta-LR, OOF preds)
+   v35-FIX-5: In-pipeline isotonic kalibrasyon + kalibre-eşik
+   v35-FIX-6: AA k-mer fallback açık uyarı
+   v35-FIX-7: Optuna recall ağırlığı 5x
+   + tüm v29/v34 düzeltmeleri korundu (KMER-FIX, PATH-FIX, FIX-1..5)
+
+
+📊 Örnekleme Bias Raporu...
+   Yıl: nan(30.1%), 2014.0(7.8%), 2012.0(7.0%) → /content/drive/MyDrive/amr_v29/reports/bias_reports/v36_bias_year.csv
+   Ülke: USA(18.5%), Norway(13.8%), United Kingdom(13.1%) → /content/drive/MyDrive/amr_v29/reports/bias_reports/v36_bias_country.csv
+   Bakteri: ECOLI(35.5%), SALMONELLA(29.5%), KLEBSIELLA(17.0%) → /content/drive/MyDrive/amr_v29/reports/bias_reports/v36_bias_bacteria_type.csv
+   ST: nan(7.2%), 19.0(6.5%), 1.0(4.1%) → /content/drive/MyDrive/amr_v29/reports/bias_reports/v36_bias_sequence_type.csv
+
+💊 Antibiyotikler  : ciprofloxacin, gentamicin, ampicillin, ceftazidime, tetracycline
+🔤 DNA K-mer       : k=21, hash=16,384 [2^14]
+🔬 AA  K-mer       : k=4, hash=4,096 [2^12]
+♻️  SMOTE          : devre dışı
+🦠 Per-Species     : aktif [v27-C1]
+🌍 Coğrafya-CV     : Country [v27-C2]
+💾 Kullanılabilir RAM : 52.8 GB
+
+📦 Gen önbelleği: /content/drive/MyDrive/amr_v29/data/processed/v17_amr_genes_cache.csv (2,757,059 kayıt)
+   ℹ️  [v35-STAGE4-QRDR] QRDR mutasyon parquet'i yok (v35_qrdr_mutations.parquet).
+      Cipro VME'yi düşürmek için ayrı Colab'de qrdr_colab_cell.txt içeriğini yapıştır + çalıştır.
+   🧬 [PD-salmonella] 59 feature (6 QRDR), 1,245 eşleşme
+      ⭐ pd_sal_gyrA_S83F                   :   93
+      ⭐ pd_sal_gyrA_D87N                   :   85
+      ⭐ pd_sal_parC_S80R                   :   83
+   🧬 [PD-klebsiella] 72 feature (6 QRDR), 1,013 eşleşme
+      ⭐ pd_kle_parC_S80I                   :  696
+      ⭐ pd_kle_gyrA_S83I                   :  655
+      ⭐ pd_kle_gyrA_D87N                   :  479
+   🧬 [PD-pseudomonas] 55 feature (5 QRDR), 750 eşleşme
+      ⭐ pd_pse_gyrA_T83I                   :  305
+      ⭐ pd_pse_parC_S87L                   :  184
+      ⭐ pd_pse_gyrA_D87N                   :   39
+   🧬 [PD-staphylococcus] 19 feature (3 QRDR), 245 eşleşme
+      ⭐ pd_sta_gyrA_S84L                   :  138
+      ⭐ pd_sta_parC_S80Y                   :  123
+      ⭐ pd_sta_parC_S80F                   :   18
+   🧬 [PD-escherichia] 25 feature (5 QRDR), 49 eşleşme
+      ⭐ pd_eco_gyrA_S83L                   :   45
+      ⭐ pd_eco_gyrA_D87N                   :   42
+      ⭐ pd_eco_parC_S80I                   :   42
+   🎯 [v35-STAGE4-PD] TOPLAM: 230 feature, 25 QRDR mutasyon (Aldred 2014, Hooper 2015)
+
+✅ Birleştirme: 12,013 genom | 3,574 özellik
+===========================================================================
+⚙️  PER-SPECIES MODELLER EĞİTİLİYOR [v27-C1]...
+===========================================================================
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: ECOLI (3,294 genom)
+════════════════════════════════════════════════════════════
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (34 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 76 varyans = 79 çift
+   🔬 Korelasyon: 137 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] CIPROFLOXACIN
+   Dağılım → Duyarlı:2194 | Dirençli:619 (78.0%)
+   Özellikler → Gen:1258 | AA:0 | DNA-kmer:0 | Inter:79
+   💾 RAM: 50.9 GB (10% dolu)
+   📐 İmbalance: 3.5x → Eşik alt sınırı: 0.22
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=5.23 | n_est=550 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.437 | Test=0.221 (eer) | Final=0.221 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.697 | Recall=0.815 | AUC=0.877
+      RF: F1=0.727 | Recall=0.806 | AUC=0.908
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+3.26 | LR=+1.13 | RF=+2.61 | LGB=+1.35
+   🎭 Ensemble: F1=0.729 | AUC=0.915 | thr=0.176 (eer) | Rec=0.85 Spec=0.87 VME=15.3% ME=13.4%
+   CV  F1     : 0.648 ± 0.155
+   CV  Recall : 0.810 ± 0.035
+   Test F1    : 0.712 | Recall:0.839 | AUC:0.902 | AUPRC:0.730
+   Spec:0.854 | PPV:0.619 | NPV:0.949
+   FDA/CLSI: VME=16.1%❌ | ME=14.6%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.1206✅ | Kalibre=0.0901 | Δ=+0.0305
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      DNA gyrase subunit A (EC 5.99.1.3)       SHAP=0.5425
+      DNA topoisomerase IV subunit A (EC 5.99.1.3) SHAP=0.4101
+      Class A beta-lactamase (EC 3.5.2.6) = CTX-M family, extended-spectrum SHAP=0.2620
+      Macrolide 2'-phosphotransferase = Mph(A) family SHAP=0.1221
+      Phosphoenolpyruvate-protein phosphotransferase of PTS system (EC 2.7.3.9) SHAP=0.0972
+   🧬 Top-5 İnteraksiyon:
+      interact_Glutamate_decar__Transcriptional SHAP=0.0576
+      interact_Outer_membrane___Multidrug_resis SHAP=0.0230
+      interact_Multiple_antibi__Multidrug_resis SHAP=0.0208
+      interact_DNA_gyrase_subunit_A__X__DNA_topoisomerase_IV SHAP=0.0175
+      interact_EF_Tu__Multidrug_resis          SHAP=0.0158
+   💾 Model → /content/drive/MyDrive/amr_v29/models/ecoli_ciprofloxacin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (35 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 76 varyans = 79 çift
+   🔬 Korelasyon: 149 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] GENTAMICIN
+   Dağılım → Duyarlı:2599 | Dirençli:239 (91.6%)
+   Özellikler → Gen:1180 | AA:0 | DNA-kmer:0 | Inter:79
+   💾 RAM: 51.0 GB (10% dolu)
+   📐 İmbalance: 10.9x → Eşik alt sınırı: 0.15
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=14.06 | n_est=200 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×4, balanced_full×1
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.432 | Test=0.060 (eer) | Final=0.060 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.507 | Recall=0.708 | AUC=0.874
+      RF: F1=0.487 | Recall=0.812 | AUC=0.889
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+4.57 | LR=+2.59 | RF=+2.10 | LGB=+1.89
+   🎭 Ensemble: F1=0.463 | AUC=0.901 | thr=0.045 (eer) | Rec=0.85 Spec=0.83 VME=14.6% ME=16.9%
+   CV  F1     : 0.479 ± 0.096
+   CV  Recall : 0.829 ± 0.050
+   Test F1    : 0.374 | Recall:0.792 | AUC:0.907 | AUPRC:0.649
+   Spec:0.775 | PPV:0.245 | NPV:0.976
+   FDA/CLSI: VME=20.8%❌ | ME=22.5%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.1238✅ | Kalibre=0.0423 | Δ=+0.0816
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      Aminoglycoside N(3)-acetyltransferase (EC 2.3.1.81) = AAC(3)-II,III,IV,VI,VIII,IX,X SHAP=0.3225
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.1425
+      Aminoglycoside 3''-nucleotidyltransferase (EC 2.7.7.-) = ANT(3'')-Ia (AadA family) SHAP=0.1265
+      Small multidrug resistance (SMR) efflux transporter = QacE delta 1, quaternary ammonium compounds SHAP=0.0978
+      DNA gyrase subunit A (EC 5.99.1.3)       SHAP=0.0746
+   🧬 Top-5 İnteraksiyon:
+      interact_DNA_binding_tra__Multidrug_efflu SHAP=0.0270
+      interact_Multiple_antibi__DNA_binding_tra SHAP=0.0239
+      interact_Multidrug_resis__DNA_binding_tra SHAP=0.0164
+      interact_Outer_membrane___DNA_binding_tra SHAP=0.0156
+      interact_Glutamate_decar__DNA_binding_tra SHAP=0.0127
+   💾 Model → /content/drive/MyDrive/amr_v29/models/ecoli_gentamicin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (30 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 149 varyans = 152 çift
+   🔬 Korelasyon: 127 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] AMPICILLIN
+   Dağılım → Duyarlı:1276 | Dirençli:1132 (53.0%)
+   Özellikler → Gen:1267 | AA:0 | DNA-kmer:0 | Inter:152
+   💾 RAM: 51.0 GB (10% dolu)
+   📐 İmbalance: 1.1x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.92 | n_est=400 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.638 | Test=0.427 (eer) | Final=0.427 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.844 | Recall=0.811 | AUC=0.890
+      RF: F1=0.861 | Recall=0.877 | AUC=0.924
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+1.23 | LR=+0.90 | RF=+2.16 | LGB=+3.08
+   🎭 Ensemble: F1=0.873 | AUC=0.926 | thr=0.291 (eer) | Rec=0.86 Spec=0.90 VME=13.7% ME=10.2%
+   CV  F1     : 0.773 ± 0.062
+   CV  Recall : 0.763 ± 0.042
+   Test F1    : 0.845 | Recall:0.855 | AUC:0.906 | AUPRC:0.914
+   Spec:0.851 | PPV:0.836 | NPV:0.868
+   FDA/CLSI: VME=14.5%❌ | ME=14.9%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.2110🟡 | Kalibre=0.1022 | Δ=+0.1088
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      Class A beta-lactamase (EC 3.5.2.6) = TEM family SHAP=0.4816
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.1785
+      Class A beta-lactamase (EC 3.5.2.6) = CTX-M family, extended-spectrum SHAP=0.1590
+      Aminoglycoside 6-phosphotransferase (EC 2.7.1.72) = APH(6)-Ic/APH(6)-Id SHAP=0.1237
+      TEM family                               SHAP=0.0931
+   🧬 Top-5 İnteraksiyon:
+      interact_Class_C_beta_la__DNA_binding_tra SHAP=0.0089
+      interact_MdtABC_TolC__H_NS               SHAP=0.0061
+      interact_H_NS__Multidrug_resis           SHAP=0.0048
+      interact_AcrAB_TolC__Multidrug_resis     SHAP=0.0034
+      interact_DNA_binding_tra__Multidrug_resis SHAP=0.0034
+   💾 Model → /content/drive/MyDrive/amr_v29/models/ecoli_ampicillin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (31 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 76 varyans = 79 çift
+   🔬 Korelasyon: 156 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [ECOLI] CEFTAZIDIME
+   Dağılım → Duyarlı:2377 | Dirençli:308 (88.5%)
+   Özellikler → Gen:1134 | AA:0 | DNA-kmer:0 | Inter:79
+   💾 RAM: 50.9 GB (10% dolu)
+   📐 İmbalance: 7.7x → Eşik alt sınırı: 0.15
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=11.59 | n_est=400 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.442 | Test=0.075 (eer) | Final=0.075 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.688 | Recall=0.710 | AUC=0.878
+      RF: F1=0.588 | Recall=0.806 | AUC=0.917
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+2.36 | LR=+2.43 | RF=+4.10 | LGB=+1.59
+   🎭 Ensemble: F1=0.578 | AUC=0.940 | thr=0.060 (eer) | Rec=0.84 Spec=0.86 VME=16.1% ME=13.9%
+   CV  F1     : 0.428 ± 0.150
+   CV  Recall : 0.776 ± 0.073
+   Test F1    : 0.548 | Recall:0.823 | AUC:0.917 | AUPRC:0.585
+   Spec:0.846 | PPV:0.411 | NPV:0.973
+   FDA/CLSI: VME=17.7%❌ | ME=15.4%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.1633🟡 | Kalibre=0.0610 | Δ=+0.1022
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      Class A beta-lactamase (EC 3.5.2.6) = CTX-M family, extended-spectrum SHAP=0.3444
+      Class C beta-lactamase (EC 3.5.2.6) = CMY/CMY-2/CFE/LAT family SHAP=0.1534
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.1127
+      DNA gyrase subunit A (EC 5.99.1.3)       SHAP=0.1076
+      DNA topoisomerase IV subunit A (EC 5.99.1.3) SHAP=0.0763
+   🧬 Top-5 İnteraksiyon:
+      interact_Multiple_antibi__DNA_binding_tra SHAP=0.0201
+      interact_Aminoglycosides__Multiple_antibi SHAP=0.0185
+      interact_Glutamate_decar__Multiple_antibi SHAP=0.0142
+      interact_Multiple_antibi__Class_C_beta_la SHAP=0.0122
+      interact_Class_C_beta_la__Multidrug_efflu SHAP=0.0068
+   💾 Model → /content/drive/MyDrive/amr_v29/models/ecoli_ceftazidime_v36.pkl
+   ⏭️  tetracycline: atlanıyor (R=31, S=12)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: KLEBSIELLA (2,252 genom)
+════════════════════════════════════════════════════════════
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (30 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 114 varyans = 117 çift
+   🔬 Korelasyon: 120 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [KLEBSIELLA] CIPROFLOXACIN
+   Dağılım → Duyarlı:670 | Dirençli:1258 (65.2%)
+   Özellikler → Gen:1196 | AA:0 | DNA-kmer:0 | Inter:117
+   💾 RAM: 51.0 GB (10% dolu)
+   📐 İmbalance: 0.5x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.03 | n_est=200 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.638 | Test=0.638 (eer) | Final=0.638 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.905 | Recall=0.909 | AUC=0.934
+      RF: F1=0.901 | Recall=0.940 | AUC=0.938
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+1.87 | LR=+1.38 | RF=+2.45 | LGB=+2.66
+   🎭 Ensemble: F1=0.927 | AUC=0.956 | thr=0.628 (balanced_full) | Rec=0.90 Spec=0.92 VME=9.9% ME=8.2%
+   CV  F1     : 0.733 ± 0.150
+   CV  Recall : 0.780 ± 0.061
+   Test F1    : 0.893 | Recall:0.865 | AUC:0.944 | AUPRC:0.973
+   Spec:0.866 | PPV:0.924 | NPV:0.773
+   FDA/CLSI: VME=13.5%❌ | ME=13.4%❌
+   Klinik Durum: 🟠 | 🚨 OVERFITTING?
+   🎯 Brier: Ham=0.1431✅ | Kalibre=0.0793 | Δ=+0.0638
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_kle_parC_S80I                         SHAP=0.3192
+      pd_kle_gyrA_S83I                         SHAP=0.1861
+      Aminoglycoside 3''-nucleotidyltransferase (EC 2.7.7.-) = ANT(3'')-Ia (AadA family) SHAP=0.1115
+      Class A beta-lactamase (EC 3.5.2.6) = CTX-M family, extended-spectrum SHAP=0.0885
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.0754
+   🧬 Top-5 İnteraksiyon:
+      interact_pd_kle_fosA__pd_kle_oqxA        SHAP=0.0795
+      interact_pd_kle_emrD__pd_kle_oqxA        SHAP=0.0345
+      interact_pd_kle_fosA__pd_kle_emrD        SHAP=0.0282
+      interact_Multidrug_efflu__Multidrug_efflu SHAP=0.0073
+      interact_Multidrug_efflu__Spermidine_expo SHAP=0.0051
+   💾 Model → /content/drive/MyDrive/amr_v29/models/klebsiella_ciprofloxacin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (31 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 116 varyans = 119 çift
+   🔬 Korelasyon: 119 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [KLEBSIELLA] GENTAMICIN
+   Dağılım → Duyarlı:1421 | Dirençli:714 (66.6%)
+   Özellikler → Gen:1220 | AA:0 | DNA-kmer:0 | Inter:119
+   💾 RAM: 51.0 GB (10% dolu)
+   📐 İmbalance: 2.0x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.80 | n_est=450 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.417 | Test=0.312 (eer) | Final=0.312 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.830 | Recall=0.804 | AUC=0.943
+      RF: F1=0.805 | Recall=0.825 | AUC=0.935
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+4.15 | LR=+1.08 | RF=+1.53 | LGB=+1.43
+   🎭 Ensemble: F1=0.852 | AUC=0.958 | thr=0.291 (eer) | Rec=0.89 Spec=0.90 VME=11.2% ME=9.9%
+   CV  F1     : 0.652 ± 0.068
+   CV  Recall : 0.768 ± 0.054
+   Test F1    : 0.834 | Recall:0.881 | AUC:0.948 | AUPRC:0.919
+   Spec:0.884 | PPV:0.792 | NPV:0.937
+   FDA/CLSI: VME=11.9%❌ | ME=11.6%❌
+   Klinik Durum: 🟠 | 🚨 OVERFITTING?
+   🎯 Brier: Ham=0.0938✅ | Kalibre=0.0626 | Δ=+0.0312
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_kle_aac(3)-IIe                        SHAP=0.8962
+      Aminoglycoside N(3)-acetyltransferase (EC 2.3.1.81) = AAC(3)-II,III,IV,VI,VIII,IX,X SHAP=0.6812
+      Class A beta-lactamase (EC 3.5.2.6) = CTX-M family, extended-spectrum SHAP=0.1665
+      hypothetical protein                     SHAP=0.1364
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.1105
+   🧬 Top-5 İnteraksiyon:
+      interact_Aminoglycosides__RND_efflux_syst SHAP=0.0663
+      interact_pd_kle_emrD__Multidrug_efflu    SHAP=0.0459
+      interact_Aminoglycosides__Multidrug_efflu SHAP=0.0445
+      interact_pd_kle_emrD__pd_kle_fosA        SHAP=0.0326
+      interact_Multidrug_resis__Multiple_antibi SHAP=0.0234
+   💾 Model → /content/drive/MyDrive/amr_v29/models/klebsiella_gentamicin_v36.pkl
+   ⏭️  ampicillin: atlanıyor (R=0, S=0)
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (28 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 112 varyans = 115 çift
+   🔬 Korelasyon: 111 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [KLEBSIELLA] CEFTAZIDIME
+   Dağılım → Duyarlı:574 | Dirençli:1355 (70.2%)
+   Özellikler → Gen:1194 | AA:0 | DNA-kmer:0 | Inter:115
+   💾 RAM: 51.0 GB (10% dolu)
+   📐 İmbalance: 0.4x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.60 | n_est=200 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×4, balanced_full×1
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.749 | Test=0.668 (eer) | Final=0.668 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.916 | Recall=0.908 | AUC=0.935
+      RF: F1=0.941 | Recall=0.996 | AUC=0.948
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+2.83 | LR=+1.47 | RF=+1.48 | LGB=+2.72
+   🎭 Ensemble: F1=0.936 | AUC=0.961 | thr=0.719 (eer) | Rec=0.92 Spec=0.90 VME=8.1% ME=10.4%
+   CV  F1     : 0.767 ± 0.155
+   CV  Recall : 0.790 ± 0.084
+   Test F1    : 0.926 | Recall:0.900 | AUC:0.953 | AUPRC:0.978
+   Spec:0.896 | PPV:0.953 | NPV:0.792
+   FDA/CLSI: VME=10.0%❌ | ME=10.4%❌
+   Klinik Durum: 🟠 | 🚨 OVERFITTING?
+   🎯 Brier: Ham=0.1148✅ | Kalibre=0.0612 | Δ=+0.0536
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_kle_parC_S80I                         SHAP=0.2251
+      Class A beta-lactamase (EC 3.5.2.6) = CTX-M family, extended-spectrum SHAP=0.1629
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.1546
+      pd_kle_fosA                              SHAP=0.1080
+      Aminoglycoside 3''-nucleotidyltransferase (EC 2.7.7.-) = ANT(3'')-Ia (AadA family) SHAP=0.0868
+   🧬 Top-5 İnteraksiyon:
+      interact_pd_kle_fosA__pd_kle_emrD        SHAP=0.1483
+      interact_pd_kle_fosA__pd_kle_oqxA        SHAP=0.0128
+      interact_Transcriptional__Spermidine_expo SHAP=0.0021
+      interact_Multidrug_efflu__Multidrug_efflu SHAP=0.0020
+      interact_pd_kle_emrD__pd_kle_oqxA        SHAP=0.0020
+   💾 Model → /content/drive/MyDrive/amr_v29/models/klebsiella_ceftazidime_v36.pkl
+   ⏭️  tetracycline: atlanıyor (R=0, S=0)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: PSEUDOMONAS (795 genom)
+════════════════════════════════════════════════════════════
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (11 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 182 varyans = 185 çift
+   🔬 Korelasyon: 81 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [PSEUDOMONAS] CIPROFLOXACIN
+   Dağılım → Duyarlı:242 | Dirençli:244 (50.2%)
+   Özellikler → Gen:676 | AA:0 | DNA-kmer:0 | Inter:185
+   💾 RAM: 51.1 GB (10% dolu)
+   📐 İmbalance: 1.0x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.36 | n_est=200 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×3, balanced_full×2
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.618 | Test=0.312 (eer) | Final=0.312 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.792 | Recall=0.816 | AUC=0.874
+      RF: F1=0.835 | Recall=0.878 | AUC=0.906
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+1.91 | LR=+0.55 | RF=+2.00 | LGB=+2.54
+   🎭 Ensemble: F1=0.825 | AUC=0.903 | thr=0.181 (eer) | Rec=0.82 Spec=0.84 VME=18.4% ME=16.3%
+   CV  F1     : 0.784 ± 0.146
+   CV  Recall : 0.783 ± 0.211
+   Test F1    : 0.840 | Recall:0.857 | AUC:0.896 | AUPRC:0.909
+   Spec:0.816 | PPV:0.824 | NPV:0.851
+   FDA/CLSI: VME=14.3%❌ | ME=18.4%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.1854🟡 | Kalibre=0.1099 | Δ=+0.0756
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_pse_gyrA_T83I                         SHAP=0.4942
+      pd_pse_parC_S87L                         SHAP=0.1342
+      pd_pse_sul1                              SHAP=0.1176
+      pd_pse_fosA                              SHAP=0.0855
+      pd_pse_catB7                             SHAP=0.0735
+   🧬 Top-5 İnteraksiyon:
+      interact_Multidrug_efflu__Alr            SHAP=0.0131
+      interact_MdtABC_TolC__Transcriptional    SHAP=0.0117
+      interact_Chloramphenicol__Class_D_beta_la SHAP=0.0109
+      interact_hypothetical_pr__MdtABC_TolC    SHAP=0.0087
+      interact_Chloramphenicol__hypothetical_pr SHAP=0.0082
+   💾 Model → /content/drive/MyDrive/amr_v29/models/pseudomonas_ciprofloxacin_v36.pkl
+   ⏭️  gentamicin: atlanıyor (R=0, S=0)
+   ⏭️  ampicillin: atlanıyor (R=0, S=0)
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (23 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 63 varyans = 66 çift
+   🔬 Korelasyon: 70 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [PSEUDOMONAS] CEFTAZIDIME
+   Dağılım → Duyarlı:333 | Dirençli:215 (60.8%)
+   Özellikler → Gen:664 | AA:0 | DNA-kmer:0 | Inter:66
+   💾 RAM: 51.1 GB (10% dolu)
+   📐 İmbalance: 1.5x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.34 | n_est=500 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.603 | Test=0.327 (eer) | Final=0.327 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.636 | Recall=0.651 | AUC=0.728
+      RF: F1=0.709 | Recall=0.907 | AUC=0.795
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+1.05 | LR=+0.93 | RF=+1.41 | LGB=+1.09
+   🎭 Ensemble: F1=0.650 | AUC=0.795 | thr=0.357 (eer) | Rec=0.60 Spec=0.84 VME=39.5% ME=16.4%
+   CV  F1     : 0.697 ± 0.077
+   CV  Recall : 0.757 ± 0.031
+   Test F1    : 0.674 | Recall:0.744 | AUC:0.781 | AUPRC:0.614
+   Spec:0.701 | PPV:0.615 | NPV:0.810
+   FDA/CLSI: VME=25.6%❌ | ME=29.9%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.2230🟡 | Kalibre=0.1640 | Δ=+0.0590
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_pse_sul1                              SHAP=0.3034
+      pd_pse_gyrA_T83I                         SHAP=0.2918
+      pd_pse_parC_S87L                         SHAP=0.2426
+      nalD                                     SHAP=0.1259
+      Iso-tRNA                                 SHAP=0.0864
+   🧬 Top-5 İnteraksiyon:
+      interact_Chloramphenicol__Class_C_beta_la SHAP=0.0409
+      interact_Class_D_beta_la__pd_pse_gyrA_T83 SHAP=0.0391
+      interact_Multidrug_efflu__Multidrug_efflu SHAP=0.0373
+      interact_Multidrug_efflu__Class_C_beta_la SHAP=0.0229
+      interact_Multidrug_resis__pd_pse_gyrA_T83 SHAP=0.0199
+   💾 Model → /content/drive/MyDrive/amr_v29/models/pseudomonas_ceftazidime_v36.pkl
+   ⏭️  tetracycline: atlanıyor (R=0, S=0)
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: SALMONELLA (2,419 genom)
+════════════════════════════════════════════════════════════
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (38 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 298 varyans = 301 çift
+   🔬 Korelasyon: 110 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] CIPROFLOXACIN
+   Dağılım → Duyarlı:1584 | Dirençli:415 (79.2%)
+   Özellikler → Gen:1030 | AA:0 | DNA-kmer:0 | Inter:301
+   💾 RAM: 50.9 GB (10% dolu)
+   📐 İmbalance: 3.8x → Eşik alt sınırı: 0.22
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=5.72 | n_est=350 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×4, balanced_full×1
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.568 | Test=0.307 (eer) | Final=0.307 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.724 | Recall=0.855 | AUC=0.926
+      RF: F1=0.708 | Recall=0.892 | AUC=0.913
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+3.05 | LR=+1.59 | RF=+2.28 | LGB=+1.11
+   🎭 Ensemble: F1=0.744 | AUC=0.940 | thr=0.221 (eer) | Rec=0.89 Spec=0.87 VME=10.8% ME=13.2%
+   CV  F1     : 0.353 ± 0.240
+   CV  Recall : 0.729 ± 0.155
+   Test F1    : 0.753 | Recall:0.880 | AUC:0.946 | AUPRC:0.812
+   Spec:0.880 | PPV:0.658 | NPV:0.965
+   FDA/CLSI: VME=12.0%❌ | ME=12.0%❌
+   Klinik Durum: 🟠 | 🚨 OVERFITTING?
+   🎯 Brier: Ham=0.1003✅ | Kalibre=0.0650 | Δ=+0.0353
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_sal_gyrA_S83F                         SHAP=0.4080
+      DNA gyrase subunit A (EC 5.99.1.3)       SHAP=0.2280
+      pd_sal_mdsB                              SHAP=0.2274
+      Multidrug efflux system, membrane fusion component = MexP of MexPQ-OpmE system SHAP=0.1657
+      pd_sal_mdsA                              SHAP=0.1534
+   🧬 Top-5 İnteraksiyon:
+      interact_pd_sal_mdsB__pd_sal_mdsA        SHAP=0.7722
+      interact_pd_sal_mdsB__Translation_elo    SHAP=0.0653
+      interact_Alr__cpxA                       SHAP=0.0559
+      interact_rpoB__cpxA                      SHAP=0.0328
+      interact_pd_sal_mdsB__gyrB               SHAP=0.0319
+   💾 Model → /content/drive/MyDrive/amr_v29/models/salmonella_ciprofloxacin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (36 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 297 varyans = 300 çift
+   🔬 Korelasyon: 92 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] GENTAMICIN
+   Dağılım → Duyarlı:1569 | Dirençli:108 (93.6%)
+   Özellikler → Gen:997 | AA:0 | DNA-kmer:0 | Inter:300
+   💾 RAM: 50.9 GB (10% dolu)
+   📐 İmbalance: 14.5x → Eşik alt sınırı: 0.15
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=12.78 | n_est=450 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.332 | Test=0.075 (eer) | Final=0.075 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.581 | Recall=0.818 | AUC=0.894
+      RF: F1=0.269 | Recall=0.818 | AUC=0.840
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+3.92 | LR=+2.11 | RF=+2.13 | LGB=+0.40
+   🎭 Ensemble: F1=0.514 | AUC=0.901 | thr=0.070 (eer) | Rec=0.86 Spec=0.89 VME=13.6% ME=10.5%
+   CV  F1     : 0.237 ± 0.123
+   CV  Recall : 0.698 ± 0.066
+   Test F1    : 0.353 | Recall:0.818 | AUC:0.872 | AUPRC:0.584
+   Spec:0.803 | PPV:0.225 | NPV:0.984
+   FDA/CLSI: VME=18.2%❌ | ME=19.7%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.0980✅ | Kalibre=0.0349 | Δ=+0.0630
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      Aminoglycoside 3''-nucleotidyltransferase (EC 2.7.7.-) = ANT(3'')-Ia (AadA family) SHAP=0.2938
+      pd_sal_sul1                              SHAP=0.1146
+      Tellurite methyltransferase (EC 2.1.1.265) SHAP=0.1113
+      pd_sal_blaTEM-1                          SHAP=0.0904
+      OxyR                                     SHAP=0.0735
+   🧬 Top-5 İnteraksiyon:
+      interact_EmrAB_TolC__Alr                 SHAP=0.0837
+      interact_rpoB__gyrB                      SHAP=0.0830
+      interact_gyrA__Ddl                       SHAP=0.0659
+      interact_MdtABC_TolC__H_NS               SHAP=0.0387
+      interact_MdtABC_TolC__gyrB               SHAP=0.0364
+   💾 Model → /content/drive/MyDrive/amr_v29/models/salmonella_gentamicin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (43 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 297 varyans = 300 çift
+   🔬 Korelasyon: 103 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] AMPICILLIN
+   Dağılım → Duyarlı:1668 | Dirençli:701 (70.4%)
+   Özellikler → Gen:1056 | AA:0 | DNA-kmer:0 | Inter:300
+   💾 RAM: 50.9 GB (11% dolu)
+   📐 İmbalance: 2.4x → Eşik alt sınırı: 0.22
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.92 | n_est=200 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×4, balanced_full×1
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.563 | Test=0.241 (eer) | Final=0.241 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.701 | Recall=0.721 | AUC=0.843
+      RF: F1=0.704 | Recall=0.814 | AUC=0.879
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+4.45 | LR=+0.66 | RF=+2.17 | LGB=+1.26
+   🎭 Ensemble: F1=0.707 | AUC=0.897 | thr=0.201 (eer) | Rec=0.79 Spec=0.81 VME=20.7% ME=18.9%
+   CV  F1     : 0.642 ± 0.172
+   CV  Recall : 0.739 ± 0.111
+   Test F1    : 0.707 | Recall:0.800 | AUC:0.895 | AUPRC:0.835
+   Spec:0.805 | PPV:0.633 | NPV:0.906
+   FDA/CLSI: VME=20.0%❌ | ME=19.5%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.1540🟡 | Kalibre=0.1009 | Δ=+0.0532
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_sal_blaTEM-1                          SHAP=0.3624
+      pd_sal_floR                              SHAP=0.1951
+      pd_sal_blaCMY-2                          SHAP=0.1788
+      Class A beta-lactamase (EC 3.5.2.6) = TEM family SHAP=0.1591
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.1240
+   🧬 Top-5 İnteraksiyon:
+      interact_pd_sal_mdsB__pd_sal_mdsA        SHAP=0.2808
+      interact_pd_sal_mdsB__AcrEF_TolC         SHAP=0.0359
+      interact_pd_sal_mdsB__Translation_elo    SHAP=0.0218
+      interact_AcrAB_TolC__MdtABC_TolC         SHAP=0.0184
+      interact_pd_sal_mdsB__rpoB               SHAP=0.0125
+   💾 Model → /content/drive/MyDrive/amr_v29/models/salmonella_ampicillin_v36.pkl
+   ⏭️  ceftazidime: atlanıyor (R=0, S=0)
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (39 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 297 varyans = 300 çift
+   🔬 Korelasyon: 114 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [SALMONELLA] TETRACYCLINE
+   Dağılım → Duyarlı:1307 | Dirençli:537 (70.9%)
+   Özellikler → Gen:1038 | AA:0 | DNA-kmer:0 | Inter:300
+   💾 RAM: 50.9 GB (10% dolu)
+   📐 İmbalance: 2.4x → Eşik alt sınırı: 0.22
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.44 | n_est=350 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×3, balanced_full×2
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.412 | Test=0.151 (eer) | Final=0.151 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.782 | Recall=0.822 | AUC=0.891
+      RF: F1=0.803 | Recall=0.860 | AUC=0.932
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+4.39 | LR=+1.41 | RF=+0.72 | LGB=+1.77
+   🎭 Ensemble: F1=0.803 | AUC=0.937 | thr=0.075 (eer) | Rec=0.86 Spec=0.89 VME=14.0% ME=11.5%
+   CV  F1     : 0.823 ± 0.088
+   CV  Recall : 0.859 ± 0.044
+   Test F1    : 0.797 | Recall:0.860 | AUC:0.937 | AUPRC:0.889
+   Spec:0.878 | PPV:0.742 | NPV:0.939
+   FDA/CLSI: VME=14.0%❌ | ME=12.2%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.0904✅ | Kalibre=0.0722 | Δ=+0.0182
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      pd_sal_tet(A)                            SHAP=0.6359
+      pd_sal_tet(B)                            SHAP=0.2720
+      Dihydropteroate synthase type-2 (EC 2.5.1.15) @ Sulfonamide resistance protein SHAP=0.2575
+      pd_sal_mdsB                              SHAP=0.2062
+      pd_sal_sul2                              SHAP=0.0888
+   🧬 Top-5 İnteraksiyon:
+      interact_EF_Tu__H_NS                     SHAP=0.0145
+      interact_MdtABC_TolC__acrA               SHAP=0.0130
+      interact_AcrAB_TolC__H_NS                SHAP=0.0121
+      interact_AcrAB_TolC__emrA                SHAP=0.0105
+      interact_AcrAB_TolC__rpoB                SHAP=0.0098
+   💾 Model → /content/drive/MyDrive/amr_v29/models/salmonella_tetracycline_v36.pkl
+
+════════════════════════════════════════════════════════════
+🦠 TÜR: STAPHYLOCOCCUS (3,253 genom)
+════════════════════════════════════════════════════════════
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (13 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 259 varyans = 262 çift
+   🔬 Korelasyon: 4 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [STAPHYLOCOCCUS] CIPROFLOXACIN
+   Dağılım → Duyarlı:1651 | Dirençli:1222 (57.5%)
+   Özellikler → Gen:530 | AA:0 | DNA-kmer:0 | Inter:262
+   💾 RAM: 50.7 GB (11% dolu)
+   📐 İmbalance: 1.4x → Eşik alt sınırı: 0.3
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=3.99 | n_est=450 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.689 | Test=0.281 (balanced_full) | Final=0.281 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.865 | Recall=0.849 | AUC=0.931
+      RF: F1=0.865 | Recall=0.824 | AUC=0.941
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+2.86 | LR=-0.08 | RF=+1.39 | LGB=+3.36
+   🎭 Ensemble: F1=0.897 | AUC=0.961 | thr=0.286 (balanced_full) | Rec=0.90 Spec=0.92 VME=9.8% ME=8.2%
+   CV  F1     : 0.737 ± 0.153
+   CV  Recall : 0.780 ± 0.096
+   Test F1    : 0.895 | Recall:0.902 | AUC:0.961 | AUPRC:0.953
+   Spec:0.915 | PPV:0.888 | NPV:0.926
+   FDA/CLSI: VME=9.8%❌ | ME=8.5%❌
+   Klinik Durum: 🟢 | 🚨 OVERFITTING?
+   🎯 Brier: Ham=0.1054✅ | Kalibre=0.0641 | Δ=+0.0413
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      DNA topoisomerase IV subunit A (EC 5.99.1.3) SHAP=0.5791
+      Methicillin resistance regulatory sensor-transducer MecR1 SHAP=0.3565
+      Penicillin-binding protein PBP2a, methicillin resistance determinant MecA, transpeptidase SHAP=0.2662
+      DNA gyrase subunit A (EC 5.99.1.3)       SHAP=0.1857
+      Aminoglycoside N(6')-acetyltransferase (EC 2.3.1.82) = AAC(6')-Ib/AAC(6')-II / Aminoglycoside 2''-phosphotransferase (EC 2.7.1.190) = APH(2'') SHAP=0.1518
+   🧬 Top-5 İnteraksiyon:
+      interact_Transcriptional__Penicillin_bind SHAP=0.0686
+      interact_Penicillin_bind__Multi_antimicro SHAP=0.0602
+      interact_DNA_gyrase_subunit_A__X__DNA_topoisomerase_IV SHAP=0.0487
+      interact_DNA_gyrase_subunit_A__X__MFS_type_transporter SHAP=0.0453
+      interact_Transcriptional__Putative_respon SHAP=0.0374
+   💾 Model → /content/drive/MyDrive/amr_v29/models/staphylococcus_ciprofloxacin_v36.pkl
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (13 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 252 varyans = 255 çift
+   🔬 Korelasyon: 16 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [STAPHYLOCOCCUS] GENTAMICIN
+   Dağılım → Duyarlı:2605 | Dirençli:288 (90.0%)
+   Özellikler → Gen:560 | AA:0 | DNA-kmer:0 | Inter:255
+   💾 RAM: 50.7 GB (11% dolu)
+   📐 İmbalance: 9.0x → Eşik alt sınırı: 0.15
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=13.36 | n_est=250 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×5
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.412 | Test=0.040 (eer) | Final=0.040 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.726 | Recall=0.707 | AUC=0.893
+      RF: F1=0.588 | Recall=0.810 | AUC=0.896
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+5.53 | LR=+0.81 | RF=+0.92 | LGB=+1.97
+   🎭 Ensemble: F1=0.662 | AUC=0.940 | thr=0.030 (eer) | Rec=0.84 Spec=0.92 VME=15.5% ME=7.9%
+   CV  F1     : 0.397 ± 0.209
+   CV  Recall : 0.811 ± 0.041
+   Test F1    : 0.590 | Recall:0.879 | AUC:0.939 | AUPRC:0.856
+   Spec:0.877 | PPV:0.443 | NPV:0.985
+   FDA/CLSI: VME=12.1%❌ | ME=12.3%❌
+   Klinik Durum: 🟠 | 🚨 OVERFITTING?
+   🎯 Brier: Ham=0.0802✅ | Kalibre=0.0267 | Δ=+0.0535
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      Aminoglycoside N(6')-acetyltransferase (EC 2.3.1.82) = AAC(6')-Ib/AAC(6')-II / Aminoglycoside 2''-phosphotransferase (EC 2.7.1.190) = APH(2'') SHAP=0.5757
+      AAC(6')-Ie-APH(2'')-Ia                   SHAP=0.1669
+      Tetracycline resistance, ribosomal protection type = Tet(M) SHAP=0.1652
+      Antiseptic resistance protein QacA       SHAP=0.1566
+      Transcriptional regulator, MarR family   SHAP=0.1223
+   🧬 Top-5 İnteraksiyon:
+      interact_Putative_respon__Multi_antimicro SHAP=0.0711
+      interact_Multi_antimicro__MFS_type_transp SHAP=0.0698
+      interact_rpoB__rpoC                      SHAP=0.0634
+      interact_Enoyl_acyl_carr__MFS_type_transp SHAP=0.0487
+      interact_Transcriptional__Transcriptional SHAP=0.0340
+   💾 Model → /content/drive/MyDrive/amr_v29/models/staphylococcus_gentamicin_v36.pkl
+   ⏭️  ampicillin: atlanıyor (R=0, S=0)
+   ⏭️  ceftazidime: atlanıyor (R=0, S=0)
+   🌍 Country split: External validation kapalı
+   📅 Temporal split: Year sütunu yok
+   🌍 Gruplama: 'Country' (12 grup)
+   🔗 İnteraksiyon: 3 biyolojik + 258 varyans = 261 çift
+   🔬 Korelasyon: 13 gen çıkarıldı (>0.95)
+   🛡️  PD feature: 230 kanonik mutasyon korundu
+
+──────────────────────────────────────────────────────────────────────
+💊 [STAPHYLOCOCCUS] TETRACYCLINE
+   Dağılım → Duyarlı:2222 | Dirençli:394 (84.9%)
+   Özellikler → Gen:507 | AA:0 | DNA-kmer:0 | Inter:261
+   💾 RAM: 50.7 GB (11% dolu)
+   📐 İmbalance: 5.6x → Eşik alt sınırı: 0.15
+   🔍 75 deneme... [GPU+CUDA]
+   🎯 En İyi: pos_weight=8.39 | n_est=500 | device=cuda
+   🔬 [v27-C2] GroupKFold CV (coğrafya/ST bazlı)
+   📐 [v35-FIX-1] CV eşik modu: eer×3, balanced_full×2
+   🎯 [v35-FIX-1] Eşikler → CV-med=0.553 | Test=0.176 (eer) | Final=0.176 | Cal=True
+   📊 Baseline modeller eğitiliyor...
+      LR: F1=0.688 | Recall=0.810 | AUC=0.929
+      RF: F1=0.558 | Recall=0.823 | AUC=0.903
+   🏗️  [v35-FIX-4] Stacked ens. ağırlıkları → XGB=+5.74 | LR=+0.25 | RF=+1.53 | LGB=+0.66
+   🎭 Ensemble: F1=0.693 | AUC=0.959 | thr=0.126 (eer) | Rec=0.87 Spec=0.89 VME=12.7% ME=11.5%
+   CV  F1     : 0.692 ± 0.136
+   CV  Recall : 0.872 ± 0.073
+   Test F1    : 0.707 | Recall:0.886 | AUC:0.960 | AUPRC:0.866
+   Spec:0.890 | PPV:0.588 | NPV:0.978
+   FDA/CLSI: VME=11.4%❌ | ME=11.0%❌
+   Klinik Durum: 🟠 | ✅ Tutarlı
+   🎯 Brier: Ham=0.0813✅ | Kalibre=0.0407 | Δ=+0.0406
+   🧠 SHAP Analizi...
+   🧬 Top-5 Gen:
+      Tetracycline resistance, MFS efflux pump = Tet(K) SHAP=0.7825
+      Tetracycline resistance, ribosomal protection type = Tet(M) SHAP=0.2943
+      Tetracycline resistance, MFS efflux pump = Tet(38) SHAP=0.1751
+      Aminoglycoside N(6')-acetyltransferase (EC 2.3.1.82) = AAC(6')-Ib/AAC(6')-II / Aminoglycoside 2''-phosphotransferase (EC 2.7.1.190) = APH(2'') SHAP=0.1682
+      Arsenical resistance operon repressor    SHAP=0.1604
+   🧬 Top-5 İnteraksiyon:
+      interact_Transcriptional__Multi_antimicro SHAP=0.1190
+      interact_Two_component_s__Copper_I__chape SHAP=0.0909
+      interact_Alanine_racemas__Copper_I__chape SHAP=0.0684
+      interact_GdpD__Alanine_racemas           SHAP=0.0630
+      interact_DNA_gyrase_subu__Cardiolipin_syn SHAP=0.0516
+   💾 Model → /content/drive/MyDrive/amr_v29/models/staphylococcus_tetracycline_v36.pkl
+
+============================================================================================================================================
+        V35 FİNAL PERFORMANS TABLOSU [Kim 2022 Tam Hizalama]
+        VME-Eşik | MI-FS | Stacked Ensemble | Kalibre-Karar | Bootstrap CI
+============================================================================================================================================
+           Tür   Antibiyotik  N_direncli Split_Modu XGB_F1 XGB_Recall XGB_Spec XGB_AUC ENS_F1 ENS_AUC  VME%   ME% Brier_Ham Brier_Cal Klinik_Hazir
+         ECOLI CIPROFLOXACIN         619     random  0.712      0.839    0.854   0.902  0.729   0.915 16.1❌ 14.6❌    0.1206    0.0901            🟠
+         ECOLI    GENTAMICIN         239     random  0.374      0.792    0.775   0.907  0.463   0.901 20.8❌ 22.5❌    0.1238    0.0423            🟠
+         ECOLI    AMPICILLIN        1132     random  0.845      0.855    0.851   0.906  0.873   0.926 14.5❌ 14.9❌     0.211    0.1022            🟠
+         ECOLI   CEFTAZIDIME         308     random  0.548      0.823    0.846   0.917  0.578   0.940 17.7❌ 15.4❌    0.1633     0.061            🟠
+    KLEBSIELLA CIPROFLOXACIN        1258     random  0.893      0.865    0.866   0.944  0.927   0.956 13.5❌ 13.4❌    0.1431    0.0793            🟠
+    KLEBSIELLA    GENTAMICIN         714     random  0.834      0.881    0.884   0.948  0.852   0.958 11.9❌ 11.6❌    0.0938    0.0626            🟠
+    KLEBSIELLA   CEFTAZIDIME        1355     random  0.926      0.900    0.896   0.953  0.936   0.961 10.0❌ 10.4❌    0.1148    0.0612            🟠
+   PSEUDOMONAS CIPROFLOXACIN         244     random  0.840      0.857    0.816   0.896  0.825   0.903 14.3❌ 18.4❌    0.1854    0.1099            🟠
+   PSEUDOMONAS   CEFTAZIDIME         215     random  0.674      0.744    0.701   0.781  0.650   0.795 25.6❌ 29.9❌     0.223     0.164            🟠
+    SALMONELLA CIPROFLOXACIN         415     random  0.753      0.880    0.880   0.946  0.744   0.940 12.0❌ 12.0❌    0.1003     0.065            🟠
+    SALMONELLA    GENTAMICIN         108     random  0.353      0.818    0.803   0.872  0.514   0.901 18.2❌ 19.7❌     0.098    0.0349            🟠
+    SALMONELLA    AMPICILLIN         701     random  0.707      0.800    0.805   0.895  0.707   0.897 20.0❌ 19.5❌     0.154    0.1009            🟠
+    SALMONELLA  TETRACYCLINE         537     random  0.797      0.860    0.878   0.937  0.803   0.937 14.0❌ 12.2❌    0.0904    0.0722            🟠
+STAPHYLOCOCCUS CIPROFLOXACIN        1222     random  0.895      0.902    0.915   0.961  0.897   0.961  9.8❌  8.5❌    0.1054    0.0641            🟢
+STAPHYLOCOCCUS    GENTAMICIN         288     random  0.590      0.879    0.877   0.939  0.662   0.940 12.1❌ 12.3❌    0.0802    0.0267            🟠
+STAPHYLOCOCCUS  TETRACYCLINE         394     random  0.707      0.886    0.890   0.960  0.693   0.959 11.4❌ 11.0❌    0.0813    0.0407            🟠
+
+📊 Bootstrap %95 CI (stratified, ilk 5 satır):
+       Tür   Antibiyotik   recall_CI95 specificity_CI95       f1_CI95      auc_CI95    auprc_CI95
+     ECOLI CIPROFLOXACIN [0.770,0.895]    [0.822,0.888] [0.667,0.761] [0.866,0.926] [0.625,0.783]
+     ECOLI    GENTAMICIN [0.667,0.917]    [0.737,0.804] [0.318,0.426] [0.869,0.955] [0.532,0.777]
+     ECOLI    AMPICILLIN [0.811,0.903]    [0.802,0.890] [0.811,0.876] [0.870,0.928] [0.876,0.934]
+     ECOLI   CEFTAZIDIME [0.717,0.903]    [0.813,0.880] [0.477,0.617] [0.882,0.945] [0.486,0.710]
+KLEBSIELLA CIPROFLOXACIN [0.817,0.905]    [0.806,0.918] [0.862,0.921] [0.917,0.964] [0.950,0.982]
+
+🏥 Klinik Hazır: 0 ✅ + 15 🟡/🟠 / 16 toplam
+   Recall≥0.8 | Spec≥0.5 | VME≤3.0% | ME≤5.0%
+
+📊 Sonuçlar    → /content/drive/MyDrive/amr_v29/reports/v36_final_results.csv
+🎨 Grafikler   → /content/drive/MyDrive/amr_v29/reports/figures
+📈 Kalibrasyon → /content/drive/MyDrive/amr_v29/reports/calibration
+📏 MIC Raporu  → /content/drive/MyDrive/amr_v29/reports/mic_reports
+📋 Bias Raporu → /content/drive/MyDrive/amr_v29/reports/bias_reports
+♻️  Checkpoint  → /content/drive/MyDrive/amr_v29/reports/v36_checkpoint.csv

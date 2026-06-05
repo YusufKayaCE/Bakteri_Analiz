@@ -1,0 +1,424 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# MULTI-SPECIES QRDR DOWNLOADER — BV-BRC FTPS Versiyonu
+# ═══════════════════════════════════════════════════════════════════════════
+# Bu sürüm BV-BRC FTPS'den per-genome protein FASTA dosyalarını indirir.
+# (Eski BV-BRC sp_gene API'si aa_sequence boş döndürüyor — FTP çalışıyor.)
+#
+# Süre: 8 paralel thread ile ~6-8 saat, 26k genom için.
+# Disk: Streaming + in-memory parse → ~0 disk kullanımı (sadece parquet).
+# RAM: ~500 MB-1 GB (her thread ~50-100 MB tampon).
+#
+# Çıktı: /content/drive/MyDrive/amr_v29/data/processed/v35_qrdr_mutations.parquet
+# ═══════════════════════════════════════════════════════════════════════════
+
+from google.colab import drive
+drive.mount("/content/drive", force_remount=False)
+
+import subprocess, sys
+for pkg in ["pyarrow", "pandas"]:
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-q", pkg],
+        stdout=subprocess.DEVNULL,
+    )
+
+import os, time, io, threading, re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from ftplib import FTP_TLS
+import pandas as pd
+import numpy as np
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+OUT_FILE   = os.path.join(DATA_DIR, "v35_qrdr_mutations.parquet")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Drive'ı garantile (önceki "non-existent directory" sorunu)
+if not os.path.isdir(DATA_DIR):
+    raise RuntimeError(
+        f"Drive yolu yok: {DATA_DIR}. Drive bağlı mı kontrol edin."
+    )
+
+FTP_HOST = "ftp.bv-brc.org"
+N_THREADS = 8  # Concurrent FTPS connections. 4-12 arasında dene.
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TÜR-SPESİFİK QRDR KATALOG (aynı önceki versiyon)
+# ═══════════════════════════════════════════════════════════════════════════
+QRDR_CATALOG = {
+    "ECOLI": {
+        "gyrA_anchor": "DVRDGLKPVHRRVLYAMNVLGNDWNKAYKKSARVVGDVIGKYHPHGD",
+        "gyrA_anchor_start": 64,
+        "gyrA_mutations": {
+            "gyrA_S83L": (83, "S", "L"), "gyrA_S83F": (83, "S", "F"),
+            "gyrA_D87N": (87, "D", "N"), "gyrA_D87G": (87, "D", "G"),
+            "gyrA_D87Y": (87, "D", "Y"),
+        },
+        "parC_anchor": "PFIGDGLKPVQRRIVYAMSELGLNASAKFKKSARTVGDVLGKYHPHGD",
+        "parC_anchor_start": 60,
+        "parC_mutations": {
+            "parC_S80I": (80, "S", "I"), "parC_S80R": (80, "S", "R"),
+            "parC_E84K": (84, "E", "K"), "parC_E84V": (84, "E", "V"),
+        },
+    },
+    "KLEBSIELLA": {
+        "gyrA_anchor": "DVRDGLKPVHRRILYAMNVLGNDWNKAYKKSARVVGDVIGKYHPHGD",
+        "gyrA_anchor_start": 64,
+        "gyrA_mutations": {
+            "gyrA_S83I": (83, "S", "I"), "gyrA_S83F": (83, "S", "F"),
+            "gyrA_S83Y": (83, "S", "Y"), "gyrA_D87N": (87, "D", "N"),
+            "gyrA_D87G": (87, "D", "G"), "gyrA_D87A": (87, "D", "A"),
+        },
+        "parC_anchor": "PFIGDGLKPVQRRIVYAMSELGLNASAKFKKSARTVGDVLGKYHPHGD",
+        "parC_anchor_start": 60,
+        "parC_mutations": {
+            "parC_S80I": (80, "S", "I"), "parC_E84K": (84, "E", "K"),
+        },
+    },
+    "SALMONELLA": {
+        "gyrA_anchor": "DVRDGLKPVHRRVLYAMNVLGNDWNKAYKKSARVVGDVIGKYHPHGD",
+        "gyrA_anchor_start": 64,
+        "gyrA_mutations": {
+            "gyrA_S83F": (83, "S", "F"), "gyrA_S83Y": (83, "S", "Y"),
+            "gyrA_D87N": (87, "D", "N"), "gyrA_D87G": (87, "D", "G"),
+            "gyrA_D87Y": (87, "D", "Y"),
+        },
+        "parC_anchor": "PFIGDGLKPVQRRIVYAMSELGLNASAKFKKSARTVGDVLGKYHPHGD",
+        "parC_anchor_start": 60,
+        "parC_mutations": {
+            "parC_S80I": (80, "S", "I"), "parC_E84K": (84, "E", "K"),
+        },
+    },
+    "PSEUDOMONAS": {
+        # P.aeruginosa T83 (Thr!), parC S87 (S80 değil!), E91 (E84 değil!)
+        "gyrA_anchor": "DVRDGLKPVHRRILYAMHELGLNAGAKPVKSARIVGEVIGKYHPHGD",
+        "gyrA_anchor_start": 64,
+        "gyrA_mutations": {
+            "gyrA_T83I": (83, "T", "I"), "gyrA_T83A": (83, "T", "A"),
+            "gyrA_D87N": (87, "D", "N"), "gyrA_D87G": (87, "D", "G"),
+            "gyrA_D87H": (87, "D", "H"),
+        },
+        "parC_anchor": "PHIGDGLKPVQRRIVYGMSELGNDWNKPYKKSARVVGDVIGKYHPHGD",
+        "parC_anchor_start": 70,
+        "parC_mutations": {
+            "parC_S87L": (87, "S", "L"), "parC_S87W": (87, "S", "W"),
+            "parC_E91K": (91, "E", "K"),
+        },
+    },
+    "STAPHYLOCOCCUS": {
+        # gyrA S84/E88, grlA (=parC kullanıyoruz) S80/E84
+        "gyrA_anchor": "DGRRGLKAARRRVMYALSDLGINPNNYKKSARIVGDVLGKYHPHGD",
+        "gyrA_anchor_start": 65,
+        "gyrA_mutations": {
+            "gyrA_S84L": (84, "S", "L"), "gyrA_S84A": (84, "S", "A"),
+            "gyrA_E88K": (88, "E", "K"), "gyrA_E88G": (88, "E", "G"),
+        },
+        "parC_anchor": "DGRRGLKAARSRVAFAMNDLNVDLDAYKKSAQRIVQDLLGKYHPHGD",
+        "parC_anchor_start": 61,
+        "parC_mutations": {
+            "parC_S80F": (80, "S", "F"), "parC_S80Y": (80, "S", "Y"),
+            "parC_E84K": (84, "E", "K"), "parC_E84Q": (84, "E", "Q"),
+        },
+    },
+}
+
+
+def normalize_species(name):
+    if not name:
+        return None
+    n = str(name).upper()
+    if "COLI" in n:
+        return "ECOLI"
+    if "KLEB" in n or ("PNEUMO" in n and "STREP" not in n):
+        return "KLEBSIELLA"
+    if "SALMON" in n:
+        return "SALMONELLA"
+    if "PSEUDO" in n or "AERUG" in n:
+        return "PSEUDOMONAS"
+    if "STAPH" in n or "AUREUS" in n:
+        return "STAPHYLOCOCCUS"
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FASTA + FTPS HELPERS
+# ═══════════════════════════════════════════════════════════════════════════
+# Gen ismi pattern'leri — FASTA header'da bunlardan birini ara
+GYRA_PATTERNS = ["[gyrA]", " gyrA ", "DNA gyrase subunit A"]
+PARC_PATTERNS = ["[parC]", " parC ", "DNA topoisomerase IV subunit A",
+                 "[grlA]", " grlA "]  # Stafilo için grlA = parC eşdeğeri
+
+
+def stream_faa(gid: str, timeout=60):
+    """
+    Bir genome'un protein FASTA dosyasını streaming olarak indir.
+    Birden çok dosya adı varyantını sırayla dener (BV-BRC dokümantasyonu
+    tutarsız: bazı genomelarda .faa, bazılarında .PATRIC.faa var).
+    Sadece gyrA + parC/grlA sekanslarını çıkar, gerisini at.
+    """
+    seqs = {"gyra": "", "parc": ""}
+    # Dosya adı varyantları — sırayla dene
+    candidate_paths = [
+        f"/genomes/{gid}/{gid}.PATRIC.faa",
+        f"/genomes/{gid}/{gid}.faa",
+        f"/genomes/{gid}/{gid}.RefSeq.faa",
+    ]
+
+    buf = None
+    try:
+        ftps = FTP_TLS(FTP_HOST, timeout=timeout)
+        ftps.login()
+        ftps.prot_p()
+        ftps.set_pasv(True)
+        for path in candidate_paths:
+            tmp = io.BytesIO()
+            try:
+                ftps.retrbinary(f"RETR {path}", tmp.write)
+                # Başarılı + boş değil
+                if tmp.tell() > 100:
+                    buf = tmp
+                    break
+            except Exception:
+                continue
+        ftps.quit()
+    except Exception:
+        return seqs
+
+    if buf is None:
+        return seqs
+
+    # FASTA parse
+    try:
+        text = buf.getvalue().decode("utf-8", errors="ignore")
+    except Exception:
+        return seqs
+    if not text:
+        return seqs
+
+    current_gene = None
+    current_seq  = []
+    for line in text.split("\n"):
+        if line.startswith(">"):
+            # Yeni record başladı → eskisini sakla
+            if current_gene and current_seq:
+                seqs[current_gene] = "".join(current_seq)
+            current_seq = []
+            # Gen ismini parse et
+            line_lower = line.lower()
+            if any(p.lower() in line_lower for p in GYRA_PATTERNS):
+                current_gene = "gyra"
+            elif any(p.lower() in line_lower for p in PARC_PATTERNS):
+                current_gene = "parc"
+            else:
+                current_gene = None
+        elif current_gene:
+            current_seq.append(line.strip())
+    # Son record
+    if current_gene and current_seq:
+        seqs[current_gene] = "".join(current_seq)
+
+    return seqs
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MUTATION PARSE
+# ═══════════════════════════════════════════════════════════════════════════
+def find_anchor_offset(seq, anchor):
+    if not seq or not anchor:
+        return None
+    pos = seq.find(anchor)
+    if pos != -1:
+        return pos
+    for sub_len in [40, 30, 25, 20, 15]:
+        pos = seq.find(anchor[:sub_len])
+        if pos != -1:
+            return pos
+    return None
+
+
+def parse_mutations(aa_seq, anchor, anchor_start_pos, mutations):
+    out = {key: 0 for key in mutations}
+    if not aa_seq or len(aa_seq) < 50:
+        return out
+    seq_pos_at_anchor = find_anchor_offset(aa_seq, anchor)
+    if seq_pos_at_anchor is None:
+        return out
+    for key, (ref_pos, ref_aa, mut_aa) in mutations.items():
+        seq_pos = seq_pos_at_anchor + (ref_pos - anchor_start_pos)
+        if 0 <= seq_pos < len(aa_seq) and aa_seq[seq_pos] == mut_aa:
+            out[key] = 1
+    return out
+
+
+def process_genome(gid: str, species_key: str):
+    """Bir genome'u indir, parse et, mutation dict döndür."""
+    cfg = QRDR_CATALOG.get(species_key)
+    base = {"Genome ID": gid, "species_key": species_key}
+    # Tüm mutation kolonları 0
+    for c in ALL_MUT_COLS:
+        base[c] = 0
+    if not cfg:
+        return base, False  # işlendi=False
+    seqs = stream_faa(gid)
+    found_any = bool(seqs.get("gyra") or seqs.get("parc"))
+    if not found_any:
+        return base, False
+    # gyrA mutations
+    base.update(parse_mutations(
+        seqs.get("gyra", ""),
+        cfg["gyrA_anchor"], cfg["gyrA_anchor_start"], cfg["gyrA_mutations"]
+    ))
+    # parC mutations
+    base.update(parse_mutations(
+        seqs.get("parc", ""),
+        cfg["parC_anchor"], cfg["parC_anchor_start"], cfg["parC_mutations"]
+    ))
+    return base, True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MAIN PIPELINE
+# ═══════════════════════════════════════════════════════════════════════════
+print("🧬 Multi-Species QRDR Downloader (BV-BRC FTPS)")
+print("=" * 60)
+print(f"   Thread sayısı: {N_THREADS} paralel FTPS bağlantısı")
+
+if not os.path.exists(LABELS_CSV):
+    raise FileNotFoundError(f"Labels dosyası yok: {LABELS_CSV}")
+
+y_df = pd.read_csv(LABELS_CSV)
+y_df["Genome ID"] = y_df["Genome ID"].astype(str).str.strip()
+if "Bacteria_Type" not in y_df.columns:
+    raise ValueError("Bacteria_Type sütunu yok")
+
+y_df["species_key"] = y_df["Bacteria_Type"].apply(normalize_species)
+species_counts = y_df["species_key"].value_counts(dropna=False)
+print("\n📊 Tür dağılımı:")
+for sp, n in species_counts.items():
+    flag = "✓" if sp in QRDR_CATALOG else "—"
+    print(f"   {sp}: {n:,} {flag}")
+
+proc_df = y_df.dropna(subset=["species_key"])
+proc_df = proc_df[proc_df["species_key"].isin(QRDR_CATALOG.keys())]
+proc_df = proc_df.drop_duplicates("Genome ID").reset_index(drop=True)
+print(f"\n📥 İşlenecek toplam: {len(proc_df):,} benzersiz genome")
+
+# Tüm mutation kolonları
+ALL_MUT_COLS = []
+for sp, cfg in QRDR_CATALOG.items():
+    ALL_MUT_COLS += list(cfg["gyrA_mutations"].keys())
+    ALL_MUT_COLS += list(cfg["parC_mutations"].keys())
+ALL_MUT_COLS = sorted(set(ALL_MUT_COLS))
+print(f"📋 Mutation kolonu sayısı: {len(ALL_MUT_COLS)}")
+
+# Checkpoint
+done_ids = set()
+if os.path.exists(OUT_FILE):
+    try:
+        old = pd.read_parquet(OUT_FILE)
+        done_ids = set(old["Genome ID"].astype(str).tolist())
+        # Bilgi: indirilen ama veri çekilemeyen kayıtları da say
+        n_with_data = (old[ALL_MUT_COLS].sum(axis=1) > 0).sum()
+        print(
+            f"♻️  Checkpoint: {len(done_ids):,} kayıt zaten işlenmiş "
+            f"({n_with_data:,} mutasyonlu)"
+        )
+    except Exception:
+        old = None
+else:
+    old = None
+
+remaining_df = proc_df[~proc_df["Genome ID"].isin(done_ids)]
+print(f"📥 Yeni çekilecek: {len(remaining_df):,}")
+
+if len(remaining_df) == 0:
+    print("✅ Hepsi önbellekte.")
+else:
+    todo = remaining_df[["Genome ID", "species_key"]].values.tolist()
+    new_rows = []
+    counter  = {"done": 0, "with_data": 0, "fail": 0}
+    lock     = threading.Lock()
+    last_save = 0
+    SAVE_EVRY = 1000
+    t_start = time.time()
+
+    def worker(args):
+        gid, sp = args
+        try:
+            entry, ok = process_genome(gid, sp)
+            return entry, ok
+        except Exception:
+            entry = {"Genome ID": gid, "species_key": sp}
+            for c in ALL_MUT_COLS:
+                entry[c] = 0
+            return entry, False
+
+    def flush(rows_so_far):
+        """Önceki kayıtlarla birleştir ve parquet'e yaz."""
+        merged = list(rows_so_far)
+        if old is not None:
+            merged = old.to_dict("records") + merged
+        try:
+            pd.DataFrame(merged).to_parquet(OUT_FILE, index=False)
+        except Exception as e:
+            # Drive'a yazılamadıysa /tmp'ye yaz
+            tmp = "/tmp/v35_qrdr_mutations.parquet"
+            pd.DataFrame(merged).to_parquet(tmp, index=False)
+            print(f"\n   ⚠️  Drive yazma hatası, /tmp'ye kayıt: {tmp}")
+
+    with ThreadPoolExecutor(max_workers=N_THREADS) as ex:
+        futures = {ex.submit(worker, a): a for a in todo}
+        for fut in as_completed(futures):
+            entry, ok = fut.result()
+            with lock:
+                new_rows.append(entry)
+                counter["done"] += 1
+                if ok:
+                    counter["with_data"] += 1
+                else:
+                    counter["fail"] += 1
+                # Periyodik kayıt
+                if counter["done"] - last_save >= SAVE_EVRY:
+                    flush(new_rows)
+                    last_save = counter["done"]
+                # İlerleme
+                if counter["done"] % 50 == 0:
+                    elapsed = time.time() - t_start
+                    rate    = counter["done"] / max(elapsed, 1)
+                    eta     = (len(todo) - counter["done"]) / max(rate, 1)
+                    pct     = counter["done"] / len(todo) * 100
+                    print(
+                        f"\r   %{pct:5.1f} "
+                        f"({counter['done']:,}/{len(todo):,}) "
+                        f"✓{counter['with_data']:,} "
+                        f"✗{counter['fail']:,} | "
+                        f"Hız: {rate:.1f}/s | ETA: {eta/3600:.1f}h",
+                        end="", flush=True,
+                    )
+
+    # Final kayıt
+    flush(new_rows)
+    print()
+
+# Yeniden oku ve özet ver
+df = pd.read_parquet(OUT_FILE)
+print(f"\n\n✅ TAMAMLANDI: {len(df):,} satır → {OUT_FILE}")
+
+# Tür-bazlı özet
+print("\n📊 Mutasyon Frekansları (tür-bazlı, sadece ≥%1):")
+for sp_key in QRDR_CATALOG.keys():
+    sub = df[df["species_key"] == sp_key]
+    if len(sub) == 0:
+        continue
+    n_any = (sub[ALL_MUT_COLS].sum(axis=1) > 0).sum()
+    print(f"\n   🦠 {sp_key} (N={len(sub):,}, mutasyonlu={n_any:,}):")
+    for c in ALL_MUT_COLS:
+        if c not in sub.columns:
+            continue
+        n_pos = int(sub[c].sum())
+        pct = n_pos / max(len(sub), 1) * 100
+        if pct >= 1.0:
+            bar = "█" * min(int(pct / 2), 40)
+            print(f"      {c:18s}: {n_pos:5d} ({pct:5.2f}%) {bar}")
+
+print("\n🎯 Ana Colab'de v35.py'ı çalıştırdığında QRDR feature'lar aktif olacak.")

@@ -1,0 +1,141 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# PATHOGEN DETECTION FEATURES — Bug fix + QRDR mutasyonları
+# ═══════════════════════════════════════════════════════════════════════════
+# Önceki versiyon =COMPLETE filtre ile QRDR mutasyonlarını kaçırıyordu.
+# (Mutation entries are tagged =POINT not =COMPLETE in AMRFinderPlus output)
+#
+# Bu hücre: substring search ile DOĞRU şekilde feature çıkarır + verifies.
+# Süre: ~2 dakika
+# ═══════════════════════════════════════════════════════════════════════════
+
+from google.colab import drive
+drive.mount("/content/drive", force_remount=False)
+
+import os, re
+import pandas as pd
+from collections import Counter
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+PD_CSV     = "/content/drive/MyDrive/Cleaned_Pathogen_detection_Salmonella_enterica.csv"
+BS_PQT     = os.path.join(DATA_DIR, "v35_salmonella_biosample.parquet")
+OUT_PQT    = os.path.join(DATA_DIR, "v35_salmonella_pathogen_features.parquet")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1) YÜKLEN
+# ─────────────────────────────────────────────────────────────────────────
+print("📂 Veriler yükleniyor...")
+bs_df = pd.read_parquet(BS_PQT)
+pd_df = pd.read_csv(PD_CSV, low_memory=False)
+print(f"   Salmonella BioSample: {len(bs_df):,}")
+print(f"   NCBI PD: {len(pd_df):,}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2) ÖRTÜŞMEYI BUL
+# ─────────────────────────────────────────────────────────────────────────
+bs_df["key"] = bs_df["biosample_accession"].astype(str).str.strip()
+pd_df["key"] = pd_df["BioSample"].astype(str).str.strip()
+
+matched = bs_df.merge(
+    pd_df[["key", "AMR genotypes", "Location", "Isolation type", "SNP cluster"]],
+    on="key", how="inner",
+)
+matched = matched[matched["AMR genotypes"].notna()].reset_index(drop=True)
+print(f"\n✅ Eşleşen sample (AMR genotype dolu): {len(matched):,}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3) TÜM GENE TIPLERINI ANALİZ ET (=COMPLETE, =POINT, =PARTIAL, ...)
+# ─────────────────────────────────────────────────────────────────────────
+print("\n🔬 AMR genotype string formatı analizi...")
+status_counter = Counter()
+for entry in matched["AMR genotypes"].sample(min(2000, len(matched)), random_state=42):
+    for part in str(entry).split(","):
+        if "=" in part:
+            status = part.split("=")[-1].strip()
+            status_counter[status] += 1
+print(f"   Karşılaşılan status değerleri:")
+for status, n in status_counter.most_common(10):
+    print(f"      ={status}: {n:,}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 4) BUG FIX — Substring search (status'tan bağımsız)
+# ─────────────────────────────────────────────────────────────────────────
+print("\n🧬 Gene frequency hesaplaması (substring search)...")
+gene_freq = Counter()
+for entry in matched["AMR genotypes"]:
+    if pd.isna(entry):
+        continue
+    parts = str(entry).split(",")
+    seen_genes = set()
+    for part in parts:
+        if "=" in part:
+            gene = part.split("=")[0].strip()
+        else:
+            gene = part.strip()
+        if gene:
+            seen_genes.add(gene)
+    for g in seen_genes:
+        gene_freq[g] += 1
+
+# Frekans ≥30 olan genler
+MIN_FREQ = 30
+top_genes = [g for g, n in gene_freq.items() if n >= MIN_FREQ]
+print(f"   Frekans ≥{MIN_FREQ} olan toplam gen sayısı: {len(top_genes)}")
+
+# QRDR mutasyon kategorisi
+qrdr_genes = [g for g in top_genes if re.search(r"^(gyr[AB]|par[CE])_", g)]
+beta_lactam_genes = [g for g in top_genes if g.startswith("bla")]
+aminog_genes = [g for g in top_genes if re.search(r"^(aac|aph|ant|aad)", g)]
+tet_genes = [g for g in top_genes if g.startswith("tet")]
+quinolone_genes = [g for g in top_genes if g.startswith("qnr") or "oqx" in g]
+print(f"\n📊 Gen kategorileri:")
+print(f"   QRDR mutasyonları       : {len(qrdr_genes)}")
+print(f"   β-laktamaz              : {len(beta_lactam_genes)}")
+print(f"   Aminoglikozid           : {len(aminog_genes)}")
+print(f"   Tetracycline            : {len(tet_genes)}")
+print(f"   Quinolone (qnr/oqx)     : {len(quinolone_genes)}")
+
+print(f"\n🎯 QRDR mutasyonları (özellikle Cipro için kritik):")
+for g in qrdr_genes[:20]:
+    n = gene_freq[g]
+    pct = n / len(matched) * 100
+    bar = "█" * min(int(pct), 30)
+    print(f"   {g:25s}: {n:>5,} ({pct:5.2f}%) {bar}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 5) FEATURE MATRİS OLUŞTUR
+# ─────────────────────────────────────────────────────────────────────────
+print(f"\n📐 Feature matrisi: {len(matched)} sample × {len(top_genes)} gene...")
+rows = []
+for _, row in matched.iterrows():
+    feat = {"Genome ID": row["Genome ID"]}
+    entry = str(row["AMR genotypes"]) if pd.notna(row["AMR genotypes"]) else ""
+    # Sample'ın gen seti
+    sample_genes = set()
+    for part in entry.split(","):
+        if "=" in part:
+            g = part.split("=")[0].strip()
+        else:
+            g = part.strip()
+        if g:
+            sample_genes.add(g)
+    for gene in top_genes:
+        feat[f"pd_{gene}"] = 1 if gene in sample_genes else 0
+    rows.append(feat)
+
+feat_df = pd.DataFrame(rows)
+feat_df.to_parquet(OUT_PQT, index=False)
+print(f"\n✅ KAYIT: {len(feat_df):,} × {len(feat_df.columns)-1} → {OUT_PQT}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# 6) ÖZET
+# ─────────────────────────────────────────────────────────────────────────
+print("\n" + "=" * 60)
+print("📊 ÖZET")
+print("=" * 60)
+print(f"\n✨ Salmonella için NCBI PD feature'ları HAZIR:")
+print(f"   {len(feat_df):,} sample × {len(top_genes)} gen feature")
+print(f"   {len(qrdr_genes)} QRDR mutasyon feature'ı")
+print(f"\n📁 Dosya: {OUT_PQT}")
+print(f"\n🎯 v35.py'a entegrasyon hazır.")

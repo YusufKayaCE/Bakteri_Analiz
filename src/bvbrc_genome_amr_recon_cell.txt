@@ -1,0 +1,187 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# YOL B — ADIM 1: BV-BRC genome_amr KEŞİF (kaç YENİ etiketli genom var?)
+# ═══════════════════════════════════════════════════════════════════════════
+# Tek Colab hücresi. ~3-6 dakika. SADECE genome_amr sorgular (sp_gene ÇEKMEZ).
+#
+# AMAÇ: Her (tür × antibiyotik) için BV-BRC'de ölçülmüş R/S fenotipi olan
+#       genom sayısı + bunların kaçı bizde HENÜZ YOK (= eklenebilecek yeni).
+#
+# ÇIKTI: Karar tablosu. Marathona (sp_gene fetch) değer mi, görürüz.
+# ═══════════════════════════════════════════════════════════════════════════
+
+from google.colab import drive
+drive.mount("/content/drive", force_remount=False)
+
+import os, time, re
+import pandas as pd
+import requests
+from collections import defaultdict
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+
+HEADERS = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept":       "application/json",
+}
+API = "https://www.bv-brc.org/api/genome_amr/"
+
+# Bizim panel — genome_amr'da antibiyotik adları küçük harf
+ANTIBIOTICS = [
+    "ciprofloxacin", "ampicillin", "ceftazidime",
+    "gentamicin", "tetracycline", "meropenem",
+]
+
+# Tür tanıma (genome_name üzerinden)
+SPECIES_PATTERNS = {
+    "escherichia":    r"escherichia\s+coli",
+    "klebsiella":     r"klebsiella",
+    "pseudomonas":    r"pseudomonas\s+aeruginosa|pseudomonas",
+    "staphylococcus": r"staphylococcus\s+aureus|staphylococcus",
+    "salmonella":     r"salmonella",
+}
+
+def classify_species(genome_name):
+    gn = str(genome_name).lower()
+    for sp, pat in SPECIES_PATTERNS.items():
+        if re.search(pat, gn):
+            return sp
+    return None
+
+def norm_pheno(v):
+    v = str(v).strip().lower()
+    if v.startswith("resist"):
+        return "R"
+    if v.startswith("suscept"):  # Susceptible / Susceptible-dose dependent
+        return "S" if "dose" not in v else None
+    if v.startswith("non-suscept") or v == "intermediate":
+        return None  # belirsiz → atla
+    return None
+
+# ── Bizim mevcut genom ID'leri (yeni olanı ayırmak için) ────────────────────
+print("📂 Mevcut etiketlerimiz yükleniyor...")
+y_df = pd.read_csv(LABELS_CSV)
+y_df["Genome ID"] = y_df["Genome ID"].astype(str).str.strip()
+OURS = set(y_df["Genome ID"])
+print(f"   Bizde toplam genom: {len(OURS):,}")
+
+# ── genome_amr'ı antibiyotik bazında sayfalı çek ────────────────────────────
+def fetch_amr_for_antibiotic(abx, page=25000, max_pages=40):
+    rows = []
+    start = 0
+    for _ in range(max_pages):
+        payload = (
+            f"eq(antibiotic,{abx})"
+            f"&select(genome_id,genome_name,resistant_phenotype)"
+            f"&sort(+genome_id)"
+            f"&limit({page},{start})"
+        )
+        ok = False
+        for attempt in range(3):
+            try:
+                r = requests.post(API, headers=HEADERS, data=payload, timeout=120)
+                if r.status_code in (200, 206):
+                    batch = r.json()
+                    rows.extend(batch)
+                    ok = True
+                    break
+                time.sleep(2)
+            except Exception:
+                time.sleep(3)
+        if not ok:
+            print(f"      ⚠️  {abx}: sayfa start={start} çekilemedi")
+            break
+        if len(batch) < page:
+            break
+        start += page
+        time.sleep(0.2)
+    return rows
+
+print("\n🌐 BV-BRC genome_amr çekiliyor (antibiyotik bazında)...\n")
+
+# (species, abx) -> {gid: set(of R/S calls)}
+agg = defaultdict(lambda: defaultdict(set))
+
+for abx in ANTIBIOTICS:
+    t0 = time.time()
+    rows = fetch_amr_for_antibiotic(abx)
+    n_used = 0
+    for item in rows:
+        gid = str(item.get("genome_id", "")).strip()
+        sp  = classify_species(item.get("genome_name", ""))
+        call = norm_pheno(item.get("resistant_phenotype", ""))
+        if gid and sp and call:
+            agg[(sp, abx)][gid].add(call)
+            n_used += 1
+    print(f"   {abx:15s}: {len(rows):>7,} kayıt | kullanılabilir {n_used:>7,} | "
+          f"{(time.time()-t0):.0f}s")
+
+# ── Genom başına tek karar (çelişkili ise R baskın — klinik güvenli) ────────
+def resolve(call_set):
+    if "R" in call_set:
+        return "R"
+    if "S" in call_set:
+        return "S"
+    return None
+
+# ── Özet tabloları ──────────────────────────────────────────────────────────
+print(f"\n{'═'*78}")
+print(f"📊 (TÜR × ANTİBİYOTİK) — TÜM genome_amr  vs  BİZDE OLMAYAN (YENİ)")
+print(f"{'═'*78}")
+header = f"{'Tür':<14}{'Antibiyotik':<14}{'R':>6}{'S':>7}{'Top':>7}  ||  {'YENİ-R':>7}{'YENİ-S':>7}{'YENİ-Top':>9}"
+print(header)
+print("-" * 78)
+
+summary = []
+all_new_gids = set()
+for sp in SPECIES_PATTERNS:
+    for abx in ANTIBIOTICS:
+        d = agg[(sp, abx)]
+        if not d:
+            continue
+        tot_r = tot_s = new_r = new_s = 0
+        for gid, calls in d.items():
+            c = resolve(calls)
+            if c == "R":
+                tot_r += 1
+                if gid not in OURS:
+                    new_r += 1; all_new_gids.add(gid)
+            elif c == "S":
+                tot_s += 1
+                if gid not in OURS:
+                    new_s += 1; all_new_gids.add(gid)
+        tot = tot_r + tot_s
+        new_tot = new_r + new_s
+        if tot == 0:
+            continue
+        print(f"{sp:<14}{abx:<14}{tot_r:>6,}{tot_s:>7,}{tot:>7,}  ||  "
+              f"{new_r:>7,}{new_s:>7,}{new_tot:>9,}")
+        summary.append({
+            "species": sp, "antibiotic": abx,
+            "total_R": tot_r, "total_S": tot_s,
+            "new_R": new_r, "new_S": new_s, "new_total": new_tot,
+        })
+
+print("-" * 78)
+print(f"\n🧬 Çekilmesi gereken BENZERSİZ yeni genom (sp_gene fetch maliyeti): "
+      f"{len(all_new_gids):,}")
+
+# Kaydet — sonraki adımda kullanacağız
+out = os.path.join(DATA_DIR, "v35_genome_amr_recon.csv")
+pd.DataFrame(summary).to_csv(out, index=False)
+print(f"💾 Özet → {out}")
+
+print(f"\n{'═'*78}\n🎯 KARAR\n{'═'*78}")
+print(f"""
+'YENİ-Top' sütunu = bizde OLMAYAN, ölçülmüş fenotipli genom sayısı.
+Bunlar Yol B ile eğitim setine eklenebilecek YENİ etiketli örnekler.
+
+  • YENİ-Top > 1,000 ve YENİ-R > 150  → güçlü; o (tür×ilaç) için çek
+  • YENİ-Top 300-1,000                → orta; değer
+  • YENİ-Top < 300                    → zayıf; atla
+
+Bu tabloyu paylaş — hangi (tür×ilaç) çiftleri için sp_gene fetch yapacağımıza
+birlikte karar verelim. Toplam benzersiz yeni genom sayısı, marathonun ne
+kadar süreceğini belirler (~50 genom/çağrı, ~0.8s/çağrı).
+""")

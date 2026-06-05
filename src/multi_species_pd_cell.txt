@@ -1,0 +1,274 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# MULTI-SPECIES NCBI Pathogen Detection ENTEGRASYONU
+# 4 tür birden: Klebsiella + Pseudomonas + Staphylococcus + Escherichia
+# (Salmonella zaten yapıldı — Drive'daki parquet korunur)
+# ═══════════════════════════════════════════════════════════════════════════
+# Tek Colab hücresi. ~15-20 dakika.
+#
+# ADIMLAR:
+#   1. Drive'dan 4 CSV'yi oku
+#   2. BV-BRC'den BioSample çek (4 tür için, cache'li)
+#   3. Her tür için NCBI PD ile merge
+#   4. Tür-spesifik AMR + QRDR feature parquet üret
+#   5. v35.py'a 4 yeni loader (bir sonraki adımda)
+# ═══════════════════════════════════════════════════════════════════════════
+
+from google.colab import drive
+drive.mount("/content/drive", force_remount=False)
+
+import os, time, re, warnings
+import pandas as pd
+import requests
+from collections import Counter
+
+warnings.filterwarnings("ignore")
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+
+HEADERS = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept":       "application/json",
+}
+
+# Tür yapılandırması
+SPECIES_CONFIG = {
+    "klebsiella": {
+        "pd_csv":      "/content/drive/MyDrive/Klebsiella_isolates.csv",
+        "bs_pqt":      os.path.join(DATA_DIR, "v35_klebsiella_biosample.parquet"),
+        "feat_pqt":    os.path.join(DATA_DIR, "v35_klebsiella_pathogen_features.parquet"),
+        "bacteria_patterns": ["klebsiella", "k. pneumoniae", "k pneumoniae"],
+    },
+    "pseudomonas": {
+        "pd_csv":      "/content/drive/MyDrive/Pseudomonas_isolates.csv",
+        "bs_pqt":      os.path.join(DATA_DIR, "v35_pseudomonas_biosample.parquet"),
+        "feat_pqt":    os.path.join(DATA_DIR, "v35_pseudomonas_pathogen_features.parquet"),
+        "bacteria_patterns": ["pseudomonas", "p. aeruginosa"],
+    },
+    "staphylococcus": {
+        "pd_csv":      "/content/drive/MyDrive/Staphylococcus_isolates.csv",
+        "bs_pqt":      os.path.join(DATA_DIR, "v35_staphylococcus_biosample.parquet"),
+        "feat_pqt":    os.path.join(DATA_DIR, "v35_staphylococcus_pathogen_features.parquet"),
+        "bacteria_patterns": ["staphylococcus", "s. aureus", "stafilo"],
+    },
+    "escherichia": {
+        "pd_csv":      "/content/drive/MyDrive/Escherichia_isolates.csv",
+        "bs_pqt":      os.path.join(DATA_DIR, "v35_escherichia_biosample.parquet"),
+        "feat_pqt":    os.path.join(DATA_DIR, "v35_escherichia_pathogen_features.parquet"),
+        "bacteria_patterns": ["coli", "ecoli", "escherichia"],
+    },
+}
+
+print("🧬 Multi-Species NCBI Pathogen Detection Entegrasyonu")
+print("=" * 60)
+
+# ─────────────────────────────────────────────────────────────────────────
+# YARDIMCI FONKSİYONLAR
+# ─────────────────────────────────────────────────────────────────────────
+def fetch_biosamples(genome_ids, cache_path):
+    """BV-BRC'den BioSample çek, cache'li."""
+    done = {}
+    if os.path.exists(cache_path):
+        try:
+            cached = pd.read_parquet(cache_path)
+            for _, row in cached.iterrows():
+                done[str(row["Genome ID"])] = row.to_dict()
+            print(f"     ♻️  Cache: {len(done):,}")
+        except Exception:
+            pass
+
+    remaining = [g for g in genome_ids if g not in done]
+    if not remaining:
+        return pd.DataFrame(list(done.values()))
+
+    print(f"     📥 BV-BRC fetch: {len(remaining):,}")
+    BATCH = 50
+    last_save = 0
+    t0 = time.time()
+
+    for i in range(0, len(remaining), BATCH):
+        batch = remaining[i : i + BATCH]
+        id_str = ",".join(batch)
+        payload = (
+            f"in(genome_id,({id_str}))"
+            f"&select(genome_id,sample_accession,biosample_accession,assembly_accession)"
+            f"&limit(10000)"
+        )
+        for attempt in range(3):
+            try:
+                r = requests.post(
+                    "https://www.bv-brc.org/api/genome/",
+                    headers=HEADERS, data=payload, timeout=90,
+                )
+                if r.status_code == 200:
+                    for item in r.json():
+                        gid = str(item.get("genome_id", "")).strip()
+                        if gid:
+                            entry = {
+                                "Genome ID":            gid,
+                                "sample_accession":     str(item.get("sample_accession", "") or "").strip(),
+                                "biosample_accession":  str(item.get("biosample_accession", "") or "").strip(),
+                                "assembly_accession":   str(item.get("assembly_accession", "") or "").strip(),
+                            }
+                            done[gid] = entry
+                    break
+                time.sleep(2)
+            except Exception:
+                time.sleep(3)
+
+        # Progres
+        if i % 500 == 0 or i + BATCH >= len(remaining):
+            elapsed = time.time() - t0
+            pct = (i + BATCH) / len(remaining) * 100 if remaining else 100
+            print(f"\r     %{pct:5.1f} ({i+BATCH:,}/{len(remaining):,}) | "
+                  f"{elapsed/60:.1f}m", end="", flush=True)
+
+        # Periyodik kayıt
+        if i - last_save >= 1000:
+            try:
+                pd.DataFrame(list(done.values())).to_parquet(cache_path, index=False)
+                last_save = i
+            except Exception:
+                pass
+        time.sleep(0.1)
+    print()
+    pd.DataFrame(list(done.values())).to_parquet(cache_path, index=False)
+    return pd.DataFrame(list(done.values()))
+
+
+def build_features(matched_df, min_freq=30):
+    """Eşleşen sample'lardan AMR genotype feature matrix oluştur."""
+    # Tüm genleri say
+    gene_freq = Counter()
+    for entry in matched_df["AMR genotypes"].fillna(""):
+        seen = set()
+        for part in str(entry).split(","):
+            g = part.split("=")[0].strip()
+            if g:
+                seen.add(g)
+        for g in seen:
+            gene_freq[g] += 1
+
+    top_genes = [g for g, n in gene_freq.items() if n >= min_freq]
+
+    # Feature matrix
+    rows = []
+    for _, row in matched_df.iterrows():
+        feat = {"Genome ID": row["Genome ID"]}
+        entry = str(row["AMR genotypes"]) if pd.notna(row["AMR genotypes"]) else ""
+        sample_genes = set()
+        for part in entry.split(","):
+            g = part.split("=")[0].strip()
+            if g:
+                sample_genes.add(g)
+        for gene in top_genes:
+            feat[f"pd_{gene}"] = 1 if gene in sample_genes else 0
+        rows.append(feat)
+    return pd.DataFrame(rows), top_genes
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# ANA İŞLEM
+# ─────────────────────────────────────────────────────────────────────────
+print("\n📂 Labels CSV yükleniyor...")
+y_df = pd.read_csv(LABELS_CSV)
+y_df["Genome ID"] = y_df["Genome ID"].astype(str).str.strip()
+print(f"   Toplam labels: {len(y_df):,}")
+
+results_summary = []
+
+for species_key, cfg in SPECIES_CONFIG.items():
+    print(f"\n{'═' * 60}")
+    print(f"🦠 {species_key.upper()}")
+    print(f"{'═' * 60}")
+
+    # CSV var mı?
+    if not os.path.exists(cfg["pd_csv"]):
+        print(f"   ❌ PD CSV yok: {cfg['pd_csv']}")
+        print(f"      Drive'a yükle: {cfg['pd_csv']}")
+        continue
+
+    # 1) Bizim genome ID listesi
+    pat = "|".join(cfg["bacteria_patterns"])
+    mask = y_df["Bacteria_Type"].astype(str).str.contains(pat, case=False, na=False)
+    sp_ids = y_df[mask]["Genome ID"].unique().tolist()
+    print(f"   📊 Bizim {species_key}: {len(sp_ids):,}")
+    if len(sp_ids) == 0:
+        print(f"   ⚠️  Atlanıyor")
+        continue
+
+    # 2) BV-BRC'den BioSample çek
+    print(f"   🌐 BV-BRC fetch:")
+    bs_df = fetch_biosamples(sp_ids, cfg["bs_pqt"])
+    n_bs = (bs_df["biosample_accession"].astype(str).str.len() > 0).sum()
+    print(f"   ✅ BioSample dolu: {n_bs:,}/{len(bs_df):,}")
+
+    # 3) NCBI PD CSV oku
+    print(f"   📂 NCBI PD CSV...")
+    try:
+        pd_df = pd.read_csv(cfg["pd_csv"], low_memory=False, on_bad_lines="skip")
+    except Exception as e:
+        print(f"   ❌ CSV okuma hatası: {e}")
+        continue
+    print(f"      Toplam: {len(pd_df):,}")
+
+    # 4) Merge
+    bs_df["key"] = bs_df["biosample_accession"].astype(str).str.strip()
+    pd_df["key"] = pd_df["BioSample"].astype(str).str.strip()
+    matched = bs_df.merge(
+        pd_df[["key", "AMR genotypes", "Location", "Isolation type", "SNP cluster"]],
+        on="key", how="inner",
+    )
+    matched = matched[matched["AMR genotypes"].notna()].reset_index(drop=True)
+    print(f"   ✨ Eşleşen sample: {len(matched):,}")
+
+    if len(matched) < 100:
+        print(f"   ⚠️  Eşleşme çok az, atlanıyor")
+        results_summary.append({
+            "species": species_key, "matched": len(matched),
+            "features": 0, "qrdr_count": 0,
+        })
+        continue
+
+    # 5) Feature matrix
+    print(f"   🧬 Feature matrix oluşturuluyor...")
+    feat_df, top_genes = build_features(matched, min_freq=30)
+    print(f"      Frekans ≥30 olan gen: {len(top_genes)}")
+
+    # QRDR mutasyonları
+    qrdr_cols = [c for c in feat_df.columns if any(
+        c.startswith(f"pd_{p}") for p in ["gyrA_", "gyrB_", "parC_", "parE_", "grlA_", "grlB_"]
+    )]
+    print(f"      QRDR mutasyon feature: {len(qrdr_cols)}")
+    if qrdr_cols:
+        print(f"      🎯 Top QRDR ({species_key}):")
+        for c in sorted(qrdr_cols, key=lambda c: -feat_df[c].sum())[:8]:
+            n = int(feat_df[c].sum())
+            pct = n / len(feat_df) * 100
+            print(f"         {c:25s} {n:>5,} ({pct:5.2f}%)")
+
+    # 6) Kaydet
+    feat_df.to_parquet(cfg["feat_pqt"], index=False)
+    print(f"   💾 Kayıt: {cfg['feat_pqt']}")
+
+    results_summary.append({
+        "species": species_key, "matched": len(matched),
+        "features": len(top_genes), "qrdr_count": len(qrdr_cols),
+    })
+
+# ─────────────────────────────────────────────────────────────────────────
+# ÖZET
+# ─────────────────────────────────────────────────────────────────────────
+print(f"\n{'═' * 60}")
+print(f"📊 GENEL ÖZET")
+print(f"{'═' * 60}")
+print(f"\n{'Tür':<18} {'Eşleşen':>8} {'Toplam Feat':>12} {'QRDR':>6}")
+print(f"{'-' * 50}")
+for r in results_summary:
+    print(f"{r['species']:<18} {r['matched']:>8,} {r['features']:>12,} {r['qrdr_count']:>6}")
+
+print(f"\n🎯 SONRAKİ ADIM:")
+print(f"   v35.py'a multi-species PD loader eklenecek")
+print(f"   (Salmonella + Klebsiella + Pseudomonas + Stafilo + E.coli)")
+print(f"\n   Bu özet bana paylaş, hemen v35.py güncellemesini yapayım.")

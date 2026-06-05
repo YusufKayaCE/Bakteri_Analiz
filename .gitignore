@@ -1,0 +1,19 @@
+# Sanal ortam / IDE
+.venv/
+.vscode/
+__pycache__/
+*.pyc
+
+# Büyük veri ve model çıktıları (kod deposu hafif kalsın; veriler BV-BRC/NCBI'dan üretilir)
+data/
+models/
+reports/
+*.parquet
+*.pkl
+*.db
+*.sqlite
+notebooks/.ipynb_checkpoints/
+
+# Sistem
+.DS_Store
+Thumbs.db

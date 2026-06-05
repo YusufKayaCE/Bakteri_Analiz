@@ -1,0 +1,164 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# ZAYIF (TÜR×İLAÇ) — BV-BRC genome_amr LAB-ONLY RECON
+# ═══════════════════════════════════════════════════════════════════════════
+# Tek Colab hücresi. ~5-8 dk. HİÇBİR ŞEY EĞİTMEZ — sadece sayar.
+#
+# AMAÇ: v36'da zayıf kalan çiftler için gerçek-LAB ölçümü kaç R/S var,
+#       kaçı bizde YOK (yeni genom), kaçı bizde VAR ama etiketi boş (bedava)?
+#   Zayıf hedefler:
+#     • Pseudomonas × ceftazidime  (AUC 0.78 — en zayıf)
+#     • Pseudomonas × ciprofloxacin
+#     • Salmonella  × gentamicin   (sadece 108 R)
+#     • Salmonella  × ampicillin   (sınırda)
+#     • E.coli      × gentamicin   (239 R)
+#
+# evidence ile SADECE laboratuvar ölçümü sayılır (AI-tahmini elenir).
+# ═══════════════════════════════════════════════════════════════════════════
+
+from google.colab import drive
+drive.mount("/content/drive", force_remount=False)
+
+import os, time, re, requests
+import pandas as pd
+from collections import defaultdict
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+HEADERS    = {"Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json"}
+AMR_API    = "https://www.bv-brc.org/api/genome_amr/"
+
+# Zayıf (tür → ilaçlar) hedefleri
+TARGETS = {
+    "pseudomonas":  ["ceftazidime", "ciprofloxacin"],
+    "salmonella":   ["gentamicin", "ampicillin"],
+    "escherichia":  ["gentamicin"],
+}
+SPECIES_PATTERNS = {
+    "escherichia":  re.compile(r"escherichia\s+coli", re.I),
+    "salmonella":   re.compile(r"salmonella", re.I),
+    "pseudomonas":  re.compile(r"pseudomonas\s+aeruginosa", re.I),
+}
+ABX = sorted({a for v in TARGETS.values() for a in v})
+
+def norm_pheno(v):
+    v = str(v).strip().lower()
+    if v.startswith("resist"):  return "R"
+    if v.startswith("suscept"): return "S" if "dose" not in v else None
+    return None
+
+def resolve(c):
+    return "R" if "R" in c else ("S" if "S" in c else None)
+
+def classify_evidence(it):
+    ev  = str(it.get("evidence", "")).strip().lower()
+    lab = str(it.get("laboratory_typing_method", "")).strip().lower()
+    if "comput" in ev or "predict" in ev: return "comp"
+    if ev.startswith("laboratory"):        return "lab"
+    if lab and lab not in ("", "nan", "computational method"): return "lab"
+    return "unknown"
+
+def classify_species(name):
+    for sp, pat in SPECIES_PATTERNS.items():
+        if pat.search(str(name)):
+            return sp
+    return None
+
+def fetch_amr(abx, page=25000, max_pages=80):
+    rows, start = [], 0
+    for _ in range(max_pages):
+        payload = (f"eq(antibiotic,{abx})"
+                   f"&select(genome_id,genome_name,resistant_phenotype,"
+                   f"evidence,laboratory_typing_method)"
+                   f"&sort(+genome_id)&limit({page},{start})")
+        ok = False
+        for _a in range(3):
+            try:
+                r = requests.post(AMR_API, headers=HEADERS, data=payload, timeout=120)
+                if r.status_code in (200, 206):
+                    batch = r.json(); rows.extend(batch); ok = True; break
+                time.sleep(2)
+            except Exception:
+                time.sleep(3)
+        if not ok:
+            print(f"   ⚠️  {abx} start={start} çekilemedi"); break
+        if len(batch) < page: break
+        start += page; time.sleep(0.2)
+    return rows
+
+# ── Mevcut etiketler ────────────────────────────────────────────────────────
+y = pd.read_csv(LABELS_CSV, dtype={"Genome ID": str})
+y["Genome ID"] = y["Genome ID"].astype(str).str.strip()
+OURS = set(y["Genome ID"])
+have_drug = {}   # ilaç -> bu ilaç için etiketi DOLU olan genomlar
+for d in ABX:
+    have_drug[d] = set(y.loc[y[d].notna(), "Genome ID"]) if d in y.columns else set()
+print(f"📂 Bizdeki toplam genom: {len(OURS):,}")
+for d in ABX:
+    print(f"   '{d}' etiketi dolu: {len(have_drug[d]):,}")
+
+# ── Çek (lab-only) ──────────────────────────────────────────────────────────
+agg = defaultdict(lambda: defaultdict(set))   # (sp,abx) -> gid -> {R/S}
+print("\n🌐 genome_amr lab-only çekiliyor (hedef tür+ilaç)...\n")
+for abx in ABX:
+    t0 = time.time(); rows = fetch_amr(abx); lab = comp = 0
+    for it in rows:
+        sp = classify_species(it.get("genome_name", ""))
+        if sp is None or abx not in TARGETS.get(sp, []):
+            continue
+        call = norm_pheno(it.get("resistant_phenotype", ""))
+        if not call:
+            continue
+        if classify_evidence(it) != "lab":
+            comp += 1; continue
+        gid = str(it.get("genome_id", "")).strip()
+        agg[(sp, abx)][gid].add(call); lab += 1
+    print(f"   {abx:14s}: lab={lab:>7,}  comp/atılan={comp:>7,}  ({time.time()-t0:.0f}s)")
+
+# ── Karar tablosu ───────────────────────────────────────────────────────────
+print(f"\n{'═'*92}")
+print(f"{'Tür × İlaç':<26}{'lab-R':>7}{'lab-S':>7}  ||{'YENİ-R':>8}{'YENİ-S':>8}  ||{'DOLDUR-R':>10}{'DOLDUR-S':>10}")
+print('-'*92)
+all_new = set()
+summary = []
+for sp, drugs in TARGETS.items():
+    for abx in drugs:
+        d = agg[(sp, abx)]
+        labR = labS = newR = newS = fillR = fillS = 0
+        for gid, calls in d.items():
+            c = resolve(calls)
+            if c == "R": labR += 1
+            elif c == "S": labS += 1
+            else: continue
+            if gid not in OURS:
+                all_new.add(gid)
+                if c == "R": newR += 1
+                else: newS += 1
+            elif gid not in have_drug.get(abx, set()):
+                if c == "R": fillR += 1
+                else: fillS += 1
+        print(f"{sp+' × '+abx:<26}{labR:>7,}{labS:>7,}  ||{newR:>8,}{newS:>8,}  ||{fillR:>10,}{fillS:>10,}")
+        summary.append(dict(species=sp, antibiotic=abx, lab_R=labR, lab_S=labS,
+                            new_R=newR, new_S=newS, fill_R=fillR, fill_S=fillS))
+print('-'*92)
+print(f"\n🧬 sp_gene çekilmesi gereken benzersiz YENİ genom: {len(all_new):,}")
+out = os.path.join(DATA_DIR, "v36_weak_recon.csv")
+pd.DataFrame(summary).to_csv(out, index=False)
+print(f"💾 Özet → {out}")
+
+print(f"""
+{'═'*92}
+🎯 YORUM
+{'═'*92}
+ lab-R / lab-S = BV-BRC'de bu çift için GERÇEK-LAB ölçümü toplam R / S
+ YENİ-R   = bizde HİÇ olmayan, lab-dirençli genom → sp_gene çekip yeni satır eklenir
+ DOLDUR-R = bizde VAR ama bu ilacın etiketi boş → gen feature HAZIR, sadece etiket eklenir (BEDAVA!)
+
+ Zayıf modelin asıl ihtiyacı DİRENÇLİ (R) örnek → 'YENİ-R' ve 'DOLDUR-R' sütunlarına bak.
+ • DOLDUR-R yüksekse → sıfır maliyet, hemen ekle.
+ • YENİ-R > ~150 ise → sp_gene marathonu değer.
+ • İkisi de düşükse → o çift için BV-BRC lab verisi tükenmiş (NARMS / yayın verisi gerekir).
+
+Bu tabloyu paylaş — hangi çiftleri çekeceğimize birlikte karar veririz.
+""")

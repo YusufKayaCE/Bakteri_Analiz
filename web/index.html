@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMR Tahmin Sistemi — v36 Sonuç Panosu</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9;
+    --green:#1A5C44; --accent:#2ea043; --muted:#8b949e;
+    --ok:#2ea043; --warn:#d29922; --bad:#f85149; --mid:#3fb950;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f6f8fa;color:#1f2328;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5}
+  header{background:linear-gradient(135deg,#0B3D2E,#1A5C44);color:#fff;padding:26px 32px}
+  header h1{margin:0 0 4px;font-size:22px}
+  header p{margin:0;opacity:.9;font-size:13.5px}
+  .badge{display:inline-block;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+    border-radius:20px;padding:3px 12px;font-size:12px;margin-top:10px}
+  main{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:18px 0 26px}
+  .card{background:#fff;border:1px solid #d0d7de;border-radius:10px;padding:16px 18px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card .n{font-size:26px;font-weight:700;color:#0B3D2E}
+  .card .l{font-size:12px;color:#57606a;margin-top:2px}
+  h2{color:#0B3D2E;border-bottom:2px solid #1A5C44;padding-bottom:6px;margin-top:34px;font-size:18px}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d0d7de;border-radius:10px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;text-align:center;border-bottom:1px solid #eaeef2}
+  th{background:#1A5C44;color:#fff;cursor:pointer;user-select:none;font-weight:600;white-space:nowrap}
+  th:hover{background:#23735a}
+  td:first-child,th:first-child{text-align:left}
+  tbody tr:hover{background:#f0f7f4}
+  .pill{display:inline-block;min-width:46px;padding:2px 8px;border-radius:6px;font-weight:600;color:#fff;font-size:12px}
+  .g{background:var(--ok)} .gm{background:var(--mid)} .y{background:var(--warn)} .r{background:var(--bad)}
+  .status{font-size:15px}
+  .note{font-size:12.5px;color:#57606a;margin:8px 0 0}
+  .shapgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:6px}
+  .shapcard{background:#fff;border:1px solid #d0d7de;border-radius:10px;padding:14px 16px}
+  .shapcard h3{margin:0 0 8px;font-size:14px;color:#0B3D2E}
+  .shapcard ul{margin:0;padding-left:18px;font-size:12.5px;color:#333}
+  .shapcard li{margin:2px 0}
+  .gene{font-family:Consolas,monospace;background:#eef5f1;border-radius:4px;padding:0 4px}
+  details{margin-top:18px}
+  summary{cursor:pointer;font-weight:600;color:#0B3D2E;font-size:15px;padding:8px 0}
+  pre.term{background:#0d1117;color:#c9d1d9;font-family:Consolas,"Courier New",monospace;font-size:11.5px;
+    line-height:1.45;padding:18px;border-radius:10px;overflow:auto;max-height:620px;white-space:pre;border:1px solid #30363d}
+  footer{text-align:center;color:#8b949e;font-size:12px;padding:24px}
+  .legend{font-size:12px;color:#57606a;margin:6px 0 0}
+  .legend span{display:inline-block;margin-right:14px}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧬 Bakteri Genomlarından Antimikrobiyal Direnç (AMR) Tahmini</h1>
+  <p>v36 — SMOTE-kapalı + adaptif kalibrasyon · Kim ve ark. 2022 metodolojik çerçevesine hizalı · 5 tür × 5 antibiyotik</p>
+  <span class="badge">Stacked Ensemble (XGBoost + LightGBM + RF + LR)</span>
+  <span class="badge">GroupKFold CV (coğrafya)</span>
+  <span class="badge">SHAP yorumlanabilirlik</span>
+</header>
+
+<main>
+  <div class="cards" id="cards"></div>
+
+  <h2>Model Performans Tablosu (16 model)</h2>
+  <p class="legend">
+    <span><i class="sw g"></i>≤%10</span>
+    <span><i class="sw gm"></i>≤%15</span>
+    <span><i class="sw y"></i>≤%20</span>
+    <span><i class="sw r"></i>&gt;%20</span>
+    &nbsp;·&nbsp; Başlığa tıklayarak sırala. VME = dirençliyi kaçırma (en kritik), ME = duyarlıyı dirençli sayma.
+  </p>
+  <table id="tbl">
+    <thead><tr>
+      <th data-k="tur">Tür</th><th data-k="ab">Antibiyotik</th>
+      <th data-k="nr">Dirençli (R)</th><th data-k="auc">AUC (Ens.)</th>
+      <th data-k="vme">VME %</th><th data-k="me">ME %</th>
+      <th data-k="brier">Brier (Kal.)</th><th data-k="durum">Klinik</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="note">Not: VME ve ME değerleri ana (XGB) modele aittir; AUC sütunu stacked ensemble AUC'sidir.
+     Hedef: VME ≤ %20 (klinik-operasyonel). 16 modelden 14'ü hem VME hem ME ≤ %20 aralığındadır.</p>
+
+  <h2>Biyolojik Yorumlanabilirlik — Öne Çıkan SHAP Genleri</h2>
+  <p class="note">Modelin kararını sürükleyen genler bilinen direnç mekanizmalarıyla örtüşüyor (kara-kutu değil):</p>
+  <div class="shapgrid" id="shap"></div>
+
+  <details open>
+    <summary>📟 Ham Terminal Çıktısı (v36 tam koşu)</summary>
+    <pre class="term" id="log"></pre>
+  </details>
+
+  <footer>
+    AMR Tahmin Sistemi · v36 (büyütme öncesi durum) · Kim ve ark. 2022 (Clin Microbiol Rev) hizalı<br>
+    Veri kaynakları: BV-BRC (lab-only fenotip) + NCBI Pathogen Detection (QRDR mutasyonları)
+  </footer>
+</main>
+
+<script id="logdata" type="text/plain">__LOG_CONTENT__</script>
+<script>
+const DATA = [
+ ["ECOLI","Ciprofloxacin",619,0.915,16.1,14.6,0.090,"🟠"],
+ ["ECOLI","Gentamicin",239,0.901,20.8,22.5,0.042,"🟠"],
+ ["ECOLI","Ampicillin",1132,0.926,14.5,14.9,0.102,"🟠"],
+ ["ECOLI","Ceftazidime",308,0.940,17.7,15.4,0.061,"🟠"],
+ ["KLEBSIELLA","Ciprofloxacin",1258,0.956,13.5,13.4,0.079,"🟠"],
+ ["KLEBSIELLA","Gentamicin",714,0.958,11.9,11.6,0.063,"🟠"],
+ ["KLEBSIELLA","Ceftazidime",1355,0.961,10.0,10.4,0.061,"🟠"],
+ ["PSEUDOMONAS","Ciprofloxacin",244,0.903,14.3,18.4,0.110,"🟠"],
+ ["PSEUDOMONAS","Ceftazidime",215,0.795,25.6,29.9,0.164,"🟠"],
+ ["SALMONELLA","Ciprofloxacin",415,0.940,12.0,12.0,0.065,"🟠"],
+ ["SALMONELLA","Gentamicin",108,0.901,18.2,19.7,0.035,"🟠"],
+ ["SALMONELLA","Ampicillin",701,0.897,20.0,19.5,0.101,"🟠"],
+ ["SALMONELLA","Tetracycline",537,0.937,14.0,12.2,0.072,"🟠"],
+ ["STAPHYLOCOCCUS","Ciprofloxacin",1222,0.961,9.8,8.5,0.064,"🟢"],
+ ["STAPHYLOCOCCUS","Gentamicin",288,0.940,12.1,12.3,0.027,"🟠"],
+ ["STAPHYLOCOCCUS","Tetracycline",394,0.959,11.4,11.0,0.041,"🟠"],
+];
+const SHAP = [
+ ["E. coli / Ciprofloxacin","gyrA (DNA giraz)","parC (Topoizomeraz IV)","CTX-M beta-laktamaz","→ kinolon hedef mutasyonları (Aldred 2014)"],
+ ["S. aureus / Ciprofloxacin","Topoizomeraz IV (grlA)","MecA / PBP2a","gyrA","→ metisilin + kinolon belirteçleri"],
+ ["Klebsiella / Ciprofloxacin","pd_kle_parC_S80I","pd_kle_gyrA_S83I","ANT(3'')-Ia","→ kanonik QRDR nokta mutasyonları"],
+ ["E. coli / Ampicillin","TEM beta-laktamaz","CTX-M (ESBL)","APH(6) aminoglikozit","→ beta-laktamaz mekanizması"],
+ ["Salmonella / Tetracycline","tet(A)","tet(B)","sul2","→ tetrasiklin efflux/koruma"],
+ ["Pseudomonas / Ciprofloxacin","pd_pse_gyrA_T83I","pd_pse_parC_S87L","sul1","→ P. aeruginosa'ya özgü pozisyon (Hooper 2015)"],
+];
+
+function cls(v){return v<=10?"g":v<=15?"gm":v<=20?"y":"r";}
+const tb=document.querySelector("#tbl tbody");
+function render(rows){
+  tb.innerHTML="";
+  rows.forEach(r=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td>
+      <td><b>${r[3].toFixed(3)}</b></td>
+      <td><span class="pill ${cls(r[4])}">${r[4].toFixed(1)}</span></td>
+      <td><span class="pill ${cls(r[5])}">${r[5].toFixed(1)}</span></td>
+      <td>${r[6].toFixed(3)}</td><td class="status">${r[7]}</td>`;
+    tb.appendChild(tr);
+  });
+}
+render(DATA);
+
+// sıralama
+let asc={};
+document.querySelectorAll("#tbl th").forEach((th,i)=>{
+  th.onclick=()=>{
+    asc[i]=!asc[i];
+    const s=[...DATA].sort((a,b)=>{
+      let x=a[i],y=b[i];
+      if(typeof x==="number") return asc[i]?x-y:y-x;
+      return asc[i]?String(x).localeCompare(y):String(y).localeCompare(x);
+    });
+    render(s);
+  };
+});
+
+// özet kartlar
+const nModels=DATA.length;
+const both20=DATA.filter(r=>r[4]<=20&&r[5]<=20).length;
+const avgVME=(DATA.reduce((s,r)=>s+r[4],0)/nModels).toFixed(1);
+const avgAUC=(DATA.reduce((s,r)=>s+r[3],0)/nModels).toFixed(3);
+const cards=[
+  [nModels,"Eğitilen model (tür × antibiyotik)"],
+  ["12.013","Genom (5 tür)"],
+  ["3.574","Özellik (gen + mutasyon + etkileşim)"],
+  [both20+"/"+nModels,"VME &amp; ME ≤ %20"],
+  ["%"+avgVME,"Ortalama VME"],
+  [avgAUC,"Ortalama AUC (ensemble)"],
+];
+document.getElementById("cards").innerHTML=cards.map(c=>
+  `<div class="card"><div class="n">${c[0]}</div><div class="l">${c[1]}</div></div>`).join("");
+
+// shap kartlar
+document.getElementById("shap").innerHTML=SHAP.map(s=>
+  `<div class="shapcard"><h3>${s[0]}</h3><ul>
+     <li><span class="gene">${s[1]}</span></li>
+     <li><span class="gene">${s[2]}</span></li>
+     <li><span class="gene">${s[3]}</span></li>
+   </ul><div class="note">${s[4]}</div></div>`).join("");
+
+// ham log (inline gömülü → çift tıkla açılır, sunucu gerekmez)
+document.getElementById("log").textContent =
+  document.getElementById("logdata").textContent.replace(/^\n/,"");
+</script>
+</body>
+</html>

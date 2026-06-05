@@ -1,0 +1,147 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# CABBAGE İÇERİK İNCELEME — Ne kullanabiliriz?
+# ═══════════════════════════════════════════════════════════════════════════
+# 2-3 dakika. Sadece keşif, hiçbir şey değiştirmez.
+#
+# CABBAGE Colab'de zaten clone edildi → /content/CABBAGE
+# Bu hücre:
+#   1. En değerli 4 dosyanın yapısını gösterir (header + sample rows)
+#   2. Bizim 5 türümüz + 5 antibiyotiğimize uygunluğunu kontrol eder
+#   3. Bizim mevcut genome ID'leriyle örtüşmeyi hesaplar
+# ═══════════════════════════════════════════════════════════════════════════
+
+import os
+import pandas as pd
+
+CABBAGE_DIR = "/content/CABBAGE"
+LABELS_CSV  = "/content/drive/MyDrive/amr_v29/data/processed/v2_multilabel_labels.csv"
+
+# Bizim mevcut genome ID'lerimiz
+our_df  = pd.read_csv(LABELS_CSV)
+our_ids = set(our_df["Genome ID"].astype(str).str.strip().tolist())
+print(f"📊 Bizim mevcut genome sayımız: {len(our_ids):,}")
+
+OUR_SPECIES_PATTERNS = {
+    "ECOLI":          ["escherichia coli", "ecoli", "e. coli", "e.coli"],
+    "KLEBSIELLA":     ["klebsiella pneumoniae", "klebsiella", "k. pneumoniae"],
+    "SALMONELLA":     ["salmonella"],
+    "PSEUDOMONAS":    ["pseudomonas aeruginosa", "pseudomonas"],
+    "STAPHYLOCOCCUS": ["staphylococcus aureus", "s. aureus"],
+}
+OUR_ANTIBIOTICS = ["ciprofloxacin", "gentamicin", "ampicillin",
+                   "ceftazidime", "tetracycline"]
+
+# ─────────────────────────────────────────────────────────────────────────
+# EN BÜYÜK 4 DOSYAYI İNCELE
+# ─────────────────────────────────────────────────────────────────────────
+PRIORITY_FILES = [
+    "AllExtractedGenotypes/AllGenotypesAndSpecies.csv",
+    "AllExtractedGenotypes/ExtractedGenotypesWithSpecies.csv",
+    "Mappings/PATRIC_genomes_AMR_Reduced_Mapped.csv",
+    "AllExtractedGenotypes/NDARO_EscherichiaColi.3416.metadata.filtered_Extracted_Genotypes.csv",
+    "AllExtractedGenotypes/NDARO_Salmonella.2485.metadata.filtered_Extracted_Genotypes.csv",
+]
+
+print("\n" + "=" * 60)
+print("📋 ANA DOSYA YAPI ANALİZİ")
+print("=" * 60)
+
+useful_files = []
+
+for rel_path in PRIORITY_FILES:
+    full = os.path.join(CABBAGE_DIR, rel_path)
+    if not os.path.exists(full):
+        print(f"\n❌ Yok: {rel_path}")
+        continue
+    print(f"\n📄 {rel_path}")
+    print(f"   Boyut: {os.path.getsize(full)/1024/1024:.1f} MB")
+    try:
+        # Sadece ilk 5 satırı oku
+        head = pd.read_csv(full, nrows=5, low_memory=False)
+        print(f"   Sütunlar ({len(head.columns)}): {list(head.columns)[:10]}")
+        print(f"   İlk satır örneği:")
+        for col in head.columns[:8]:
+            val = str(head.iloc[0].get(col, ""))[:60]
+            print(f"      {col:30s} = {val}")
+
+        # Toplam satır sayısını öğren (hızlıca)
+        with open(full, "rb") as f:
+            n_lines = sum(1 for _ in f)
+        print(f"   Toplam satır: {n_lines:,}")
+
+        # Bizim 5 türümüze ait satır sayısı (örnekleme yaparak)
+        sample = pd.read_csv(full, nrows=50000, low_memory=False)
+        # "species" benzeri sütun ara
+        sp_col = None
+        for c in sample.columns:
+            cl = c.lower()
+            if any(k in cl for k in ["species", "organism", "genus", "scientific"]):
+                sp_col = c
+                break
+        if sp_col:
+            sp_vals = sample[sp_col].astype(str).str.lower()
+            species_hits = {}
+            for sp_key, patterns in OUR_SPECIES_PATTERNS.items():
+                hit = sp_vals.str.contains("|".join(patterns), na=False).sum()
+                species_hits[sp_key] = hit
+            print(f"   🦠 Tür eşleşmeleri (ilk 50k satırda):")
+            for k, v in species_hits.items():
+                bar = "█" * min(int(v / 100), 30)
+                print(f"      {k:15s}: {v:>5,} {bar}")
+            total_hits = sum(species_hits.values())
+            if total_hits > 100:
+                useful_files.append((rel_path, n_lines, total_hits, sp_col))
+        else:
+            print(f"   ⚠️  'species' sütunu bulunamadı")
+
+        # "antibiotic" sütun ara
+        ab_col = None
+        for c in sample.columns:
+            cl = c.lower()
+            if any(k in cl for k in ["antibiotic", "drug", "antimicrob"]):
+                ab_col = c
+                break
+        if ab_col:
+            ab_vals = sample[ab_col].astype(str).str.lower()
+            ab_hits = {}
+            for ab in OUR_ANTIBIOTICS:
+                ab_hits[ab] = ab_vals.str.contains(ab, na=False).sum()
+            print(f"   💊 Antibiyotik eşleşmeleri:")
+            for k, v in ab_hits.items():
+                if v > 0:
+                    print(f"      {k:15s}: {v:,}")
+
+        # Genome ID sütun ara, bizimkilerle örtüşme
+        id_col = None
+        for c in sample.columns:
+            cl = c.lower()
+            if "genome_id" in cl or "patric" in cl or "bv-brc" in cl or cl == "id":
+                id_col = c
+                break
+        if id_col:
+            their_ids = set(sample[id_col].astype(str).str.strip().tolist())
+            overlap = our_ids & their_ids
+            new_ids = their_ids - our_ids
+            print(f"   🔗 ID sütunu: {id_col}")
+            print(f"      Bizimle ortak: {len(overlap):,}")
+            print(f"      YENİ ID'ler: {len(new_ids):,} (büyük → büyük potansiyel kazanım)")
+
+    except Exception as e:
+        print(f"   ⚠️  Okuma hatası: {e}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# ÖZET KARAR
+# ─────────────────────────────────────────────────────────────────────────
+print("\n" + "=" * 60)
+print("📊 ÖZET — Hangi dosya işe yarar?")
+print("=" * 60)
+if useful_files:
+    for rel_path, n_lines, hits, sp_col in useful_files:
+        print(f"   ✅ {rel_path}")
+        print(f"      {n_lines:,} satır, {hits:,} bizim tür eşleşmesi")
+else:
+    print("   ⚠️  Doğrudan kullanılabilir dosya bulunamadı — manuel inceleme gerek")
+
+print("\n🎯 Sonraki adım:")
+print("   - Eğer 'YENİ ID' sayısı > 5,000 ise CABBAGE entegrasyonu değerli")
+print("   - Aksi halde mevcut metadata ile devam yeterli")

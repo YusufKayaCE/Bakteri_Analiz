@@ -1,0 +1,447 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# YOL B — E.COLI VERİ SETİ BÜYÜTME (kanıt aşaması)
+# ═══════════════════════════════════════════════════════════════════════════
+# 3 hücre. Sırayla çalıştır:
+#   CELL 1 : genome_amr → E.coli R/S etiketleri + metadata → labels'a EKLE
+#   CELL 2 : sp_gene marathonu (resumable) → yeni genomların gen özellikleri
+#   CELL 3 : v35.py panelini E.coli + cipro için çalıştır (kanıt)
+#
+# NEDEN: Mevcut E.coli/cipro eğitim setinde R sınıfı çok az (~ birkaç yüz).
+#        Az R → düşük AUC tavanı → VME ve ME aynı anda %10'a inemiyor.
+#        genome_amr'da ölçülmüş R/S fenotipli ON BİNLERCE yeni E.coli var.
+#        Bunları eklersek R sayısı artar, AUC tavanı yükselir, EER eşiği
+#        VME≈ME≈%10 hedefine yaklaşabilir.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ CELL 1 — genome_amr → genişletilmiş E.coli etiketleri (+ Country/Year/ST)  ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+from google.colab import drive
+drive.mount("/content/drive", force_remount=False)
+
+import os, time, re, requests
+import pandas as pd
+from collections import defaultdict
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+GENE_CACHE = os.path.join(DATA_DIR, "v17_amr_genes_cache.csv")
+TODO_CSV   = os.path.join(DATA_DIR, "v35_ecoli_todo_genomes.csv")
+
+HEADERS    = {"Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json"}
+AMR_API    = "https://www.bv-brc.org/api/genome_amr/"
+GENOME_API = "https://www.bv-brc.org/api/genome/"
+
+# Panelimizdeki 6 antibiyotik (genome_amr'da küçük harf). E.coli bunların
+# hiçbirine içsel (intrinsic) dirençli DEĞİL → 6'sı da geçerli drug-bug çifti.
+ABX = ["ciprofloxacin", "ampicillin", "ceftazidime",
+       "gentamicin", "tetracycline", "meropenem"]
+
+ECOLI_RE = re.compile(r"escherichia\s+coli", re.I)
+
+def norm_pheno(v):
+    v = str(v).strip().lower()
+    if v.startswith("resist"):
+        return "R"
+    if v.startswith("suscept"):                 # Susceptible / -dose dependent
+        return "S" if "dose" not in v else None
+    return None                                  # intermediate / NS / belirsiz
+
+def resolve(calls):                              # çelişki → R baskın (klinik güvenli)
+    if "R" in calls: return "R"
+    if "S" in calls: return "S"
+    return None
+
+def fetch_amr_for_antibiotic(abx, page=25000, max_pages=80):
+    rows, start = [], 0
+    for _ in range(max_pages):
+        payload = (f"eq(antibiotic,{abx})"
+                   f"&select(genome_id,genome_name,resistant_phenotype)"
+                   f"&sort(+genome_id)&limit({page},{start})")
+        ok = False
+        for _a in range(3):
+            try:
+                r = requests.post(AMR_API, headers=HEADERS, data=payload, timeout=120)
+                if r.status_code in (200, 206):
+                    batch = r.json(); rows.extend(batch); ok = True; break
+                time.sleep(2)
+            except Exception:
+                time.sleep(3)
+        if not ok:
+            print(f"      ⚠️  {abx}: start={start} çekilemedi"); break
+        if len(batch) < page: break
+        start += page; time.sleep(0.2)
+    return rows
+
+print("🌐 genome_amr → E.coli fenotipleri çekiliyor...\n")
+gid_abx = defaultdict(lambda: defaultdict(set))
+for abx in ABX:
+    t0 = time.time(); rows = fetch_amr_for_antibiotic(abx); used = 0
+    for it in rows:
+        if not ECOLI_RE.search(str(it.get("genome_name", ""))):
+            continue
+        gid  = str(it.get("genome_id", "")).strip()
+        call = norm_pheno(it.get("resistant_phenotype", ""))
+        if gid and call:
+            gid_abx[gid][abx].add(call); used += 1
+    print(f"   {abx:14s}: {len(rows):>8,} kayıt | E.coli kullanılabilir {used:>7,} | "
+          f"{time.time()-t0:.0f}s")
+print(f"\n   ≥1 fenotipli benzersiz E.coli genom: {len(gid_abx):,}")
+
+# Wide etiket tablosu — 0=S, 1=R (mevcut labels ile aynı kodlama)
+recs = []
+for gid, ad in gid_abx.items():
+    row = {"Genome ID": gid}
+    for abx in ABX:
+        c = resolve(ad.get(abx, set()))
+        row[abx] = 1.0 if c == "R" else (0.0 if c == "S" else None)
+    recs.append(row)
+new_df = pd.DataFrame(recs)
+new_df[ABX] = new_df[ABX].astype("float")
+
+# Mevcut etiketler — Genome ID'yi STRING oku (float yuvarlama bozmasın)
+y_old = pd.read_csv(LABELS_CSV, dtype={"Genome ID": str})
+y_old["Genome ID"] = y_old["Genome ID"].astype(str).str.strip()
+OURS = set(y_old["Genome ID"])
+
+# E.coli Bacteria_Type etiketini mevcut veriden doğrula (büyük/küçük harf güvenli)
+ecoli_label = "ECOLI"
+if "Bacteria_Type" in y_old.columns:
+    m = y_old["Bacteria_Type"].astype(str).str.contains(
+        "coli|ecoli|escherich", case=False, na=False)
+    if m.any():
+        ecoli_label = y_old.loc[m, "Bacteria_Type"].mode().iloc[0]
+print(f"   Bacteria_Type etiketi: '{ecoli_label}'")
+
+new_df["Bacteria_Type"] = ecoli_label
+dup = new_df["Genome ID"].isin(OURS).sum()
+new_only = new_df[~new_df["Genome ID"].isin(OURS)].reset_index(drop=True)
+print(f"   Bizde zaten var : {dup:,}")
+print(f"   YENİ E.coli     : {len(new_only):,}")
+
+# ── Metadata (Country / Year / ST) — coğrafi GroupKFold için kritik ──────────
+# E.coli-only çalıştırmada Bacteria_Type tek değer (1 grup) → CV gruplaması
+# Country/ST'ye düşer. Bunları çekmezsek CV gruplaması çöker.
+def fetch_meta(ids, page=200):
+    out = {}
+    for i in range(0, len(ids), page):
+        chunk = ids[i:i+page]
+        payload = (f"in(genome_id,({','.join(chunk)}))"
+                   f"&select(genome_id,isolation_country,geographic_group,"
+                   f"collection_year,mlst)&limit(25000)")
+        try:
+            r = requests.post(GENOME_API, headers=HEADERS, data=payload, timeout=120)
+            if r.status_code in (200, 206):
+                for it in r.json():
+                    out[str(it.get("genome_id"))] = {
+                        "Country": it.get("isolation_country") or it.get("geographic_group"),
+                        "Year":    it.get("collection_year"),
+                        "ST":      it.get("mlst"),
+                    }
+        except Exception:
+            time.sleep(2)
+        print(f"\r   meta %{min(100, int((i+page)/max(1,len(ids))*100)):3d} "
+              f"({min(i+page,len(ids))}/{len(ids)})", end="", flush=True)
+        time.sleep(0.3)
+    print()
+    return out
+
+def _norm_st(v):
+    if v is None: return None
+    m = re.search(r"ST[._]?(\d+)", str(v), re.I)
+    if m: return f"ST{m.group(1)}"
+    s = str(v).strip()
+    return s if s and s.lower() != "nan" else None
+
+print("\n🌍 Yeni genomlar için metadata çekiliyor...")
+meta = fetch_meta(new_only["Genome ID"].tolist())
+new_only["Country"]       = new_only["Genome ID"].map(lambda g: (meta.get(g) or {}).get("Country"))
+new_only["Year"]          = new_only["Genome ID"].map(lambda g: (meta.get(g) or {}).get("Year"))
+new_only["Sequence_Type"] = new_only["Genome ID"].map(lambda g: _norm_st((meta.get(g) or {}).get("ST")))
+cov = new_only["Country"].notna().mean() * 100
+print(f"   Country kapsamı: %{cov:.0f} | ST kapsamı: %{new_only['Sequence_Type'].notna().mean()*100:.0f}")
+
+# ── Birleştir (pd.concat sütunları otomatik union eder), yedekle, kaydet ─────
+bak = LABELS_CSV.replace(".csv", "_BACKUP_pre_ecoli.csv")
+if not os.path.exists(bak):
+    y_old.to_csv(bak, index=False)
+    print(f"💾 Orijinal yedeklendi → {bak}")
+else:
+    print(f"ℹ️  Yedek zaten var (orijinal korunuyor): {bak}")
+
+expanded = pd.concat([y_old, new_only], ignore_index=True, sort=False)
+expanded = expanded.drop_duplicates(subset=["Genome ID"], keep="first").reset_index(drop=True)
+expanded.to_csv(LABELS_CSV, index=False)
+print(f"✅ Genişletilmiş etiketler → {LABELS_CSV}")
+print(f"   Satır: {len(y_old):,} → {len(expanded):,}  (+{len(expanded)-len(y_old):,})")
+
+# ── Marathon iş listesi: gen önbelleğinde OLMAYAN yeni genomlar ──────────────
+need = set(new_only["Genome ID"])
+cached_ids = set()
+if os.path.exists(GENE_CACHE):
+    cc = pd.read_csv(GENE_CACHE, usecols=["Genome ID"], dtype={"Genome ID": str})
+    cached_ids = set(cc["Genome ID"].astype(str).str.strip())
+todo = sorted(need - cached_ids)
+pd.Series(todo, name="Genome ID").to_csv(TODO_CSV, index=False)
+print(f"\n🧬 sp_gene marathonunda çekilecek: {len(todo):,} genom → {TODO_CSV}")
+
+print("\n📊 YENİ E.coli etiket dağılımı (CELL 3 bunu eğitime ekleyecek):")
+print(f"   {'antibiyotik':<14}{'R':>8}{'S':>8}{'Top':>8}{'R%':>7}")
+for abx in ABX:
+    r = int((new_only[abx] == 1).sum()); s = int((new_only[abx] == 0).sum())
+    tot = r + s
+    pct = (r / tot * 100) if tot else 0
+    print(f"   {abx:<14}{r:>8,}{s:>8,}{tot:>8,}{pct:>6.1f}%")
+print("\n➡️  Şimdi CELL 2'yi çalıştır (sp_gene marathonu).")
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ CELL 2 — sp_gene marathonu (RESUMABLE) → yeni E.coli gen özellikleri       ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+# Colab koparsa tekrar çalıştır — önbellekte olanları atlar, kaldığı yerden.
+import os, time, requests
+import pandas as pd
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+GENE_CACHE = os.path.join(DATA_DIR, "v17_amr_genes_cache.csv")
+TODO_CSV   = os.path.join(DATA_DIR, "v35_ecoli_todo_genomes.csv")
+HEADERS    = {"Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json"}
+SP_API     = "https://www.bv-brc.org/api/sp_gene/"
+BATCH      = 100
+FLUSH_EVERY = 20            # her 20 batch'te bir Drive'a yaz (checkpoint)
+
+todo = pd.read_csv(TODO_CSV, dtype={"Genome ID": str})["Genome ID"].astype(str).str.strip().tolist()
+
+if os.path.exists(GENE_CACHE):
+    cached = pd.read_csv(GENE_CACHE, dtype={"Genome ID": str})
+    cached["Genome ID"] = cached["Genome ID"].astype(str).str.strip()
+    have = set(cached["Genome ID"])
+else:
+    cached = pd.DataFrame(columns=["Genome ID", "AMR_Gene"]); have = set()
+
+todo = [g for g in todo if g not in have]
+print(f"🧬 Marathon: {len(todo):,} genom çekilecek "
+      f"(önbellekte {len(have):,} genom zaten var)")
+
+new_rows = []
+def flush():
+    global cached, new_rows
+    if not new_rows:
+        return
+    add = pd.DataFrame(new_rows)
+    cached = pd.concat([cached, add], ignore_index=True) \
+               .drop_duplicates(["Genome ID", "AMR_Gene"])
+    cached.to_csv(GENE_CACHE, index=False)
+    new_rows = []
+
+t0 = time.time()
+for i in range(0, len(todo), BATCH):
+    batch   = todo[i:i+BATCH]
+    payload = (f"in(genome_id,({','.join(batch)}))"
+               f"&select(genome_id,property,gene,product)&limit(25000)")
+    try:
+        r = requests.post(SP_API, headers=HEADERS, data=payload, timeout=120)
+        if r.status_code in (200, 206):
+            for it in r.json():
+                prop = str(it.get("property", "")).lower()
+                if any(k in prop for k in ("resist", "antimicrobial", "antibiotic")):
+                    gene = it.get("gene") or it.get("product", "")
+                    if gene:
+                        new_rows.append({"Genome ID": str(it["genome_id"]),
+                                         "AMR_Gene":  str(gene).strip()})
+        done = min(i + BATCH, len(todo))
+        eta  = (time.time()-t0)/max(1, done) * (len(todo)-done)
+        print(f"\r   %{int(done/max(1,len(todo))*100):3d} ({done}/{len(todo)}) | "
+              f"+{len(new_rows):,} satır | ETA {eta/60:.1f} dk", end="", flush=True)
+    except Exception as e:
+        print(f"\n   ❌ {e} (3 sn bekle)"); time.sleep(3)
+    if (i // BATCH + 1) % FLUSH_EVERY == 0:
+        flush()
+    time.sleep(0.8)
+flush()
+print(f"\n✅ Gen önbelleği güncellendi → {GENE_CACHE}")
+print(f"   Toplam: {len(cached):,} kayıt | {cached['Genome ID'].nunique():,} benzersiz genom")
+print("\n➡️  Şimdi CELL 3'ü çalıştır (E.coli paneli — kanıt).")
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ CELL 3 — v35.py panelini E.coli + ciprofloxacin için çalıştır (KANIT)      ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+# v35.py'da MAX_GENOMES zaten 120_000'e çıkarıldı + USE_KMER=False.
+# Genişletilmiş etiketler + güncel gen önbelleği otomatik okunacak.
+#
+# Sadece E.coli + cipro → en hızlı, en net kanıt (R sınıfı en kıt olan çift).
+# Büyütme öncesi/sonrası VME-ME'yi karşılaştır.
+
+# ── v35.py'ı Drive'da OTOMATİK bul (import hatası yaşamamak için) ───────────
+import glob, os, sys, importlib
+
+hits = glob.glob("/content/drive/MyDrive/**/v35.py", recursive=True)
+if hits:
+    v35_dir = os.path.dirname(hits[0])
+    print(f"✅ v35.py bulundu: {hits[0]}")
+    sys.path.insert(0, v35_dir)
+    import v35
+    importlib.reload(v35)              # güncel MAX_GENOMES / USE_KMER okunsun
+    v35.run_superbug_panel(species_filter=["ecoli"], antibiotic_filter=["cipro"])
+else:
+    print("⚠️  v35.py Drive'da DOSYA olarak yok.")
+    print("    Demek ki v35'i kodu bir hücreye YAPIŞTIRARAK çalıştırıyorsun.")
+    print("    → O hücreyi çalıştır, SONRA şu satırı çağır (import YOK):")
+    print('      run_superbug_panel(species_filter=["ecoli"], antibiotic_filter=["cipro"])')
+
+# Kanıt güçlüyse tüm E.coli paneli (6 ilaç):
+#   v35.run_superbug_panel(species_filter=["ecoli"])
+#
+# GERİ ALMAK İSTERSEN (büyütmeyi iptal):
+#   import shutil, os
+#   DATA="/content/drive/MyDrive/amr_v29/data/processed"
+#   shutil.copy(os.path.join(DATA,"v2_multilabel_labels_BACKUP_pre_ecoli.csv"),
+#               os.path.join(DATA,"v2_multilabel_labels.csv"))
+#   # (gen önbelleği genişlemiş kalır; zararsız — fazla genom merge'te düşer)
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ CELL 1B — PROVENANS FİLTRESİ: sadece LABORATUVARDA ölçülen R/S tut         ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+# CELL 1 evidence alanını çekmedi → 72,073 içinde lab-ölçümü + AI-tahmini KARIŞIK
+# olabilir. AI-tahminini etiket (y) yapmak modeli "başka modeli taklit" etmeye
+# eğitir → dairesel, klinik geçersiz. Bu hücre evidence dağılımını GÖSTERİR,
+# sonra YEDEKTEN temiz başlayıp sadece lab-ölçümü E.coli ekler.
+# Cell 2'yi (sp_gene) durdurma — gen varlığı provenans-nötr, etkilenmez.
+# Bunu Cell 2 biterken/bittikten sonra çalıştır, Cell 3'ten ÖNCE.
+
+import os, time, re, requests
+import pandas as pd
+from collections import defaultdict, Counter
+
+BASE       = "/content/drive/MyDrive/amr_v29"
+DATA_DIR   = os.path.join(BASE, "data", "processed")
+LABELS_CSV = os.path.join(DATA_DIR, "v2_multilabel_labels.csv")
+BACKUP_CSV = LABELS_CSV.replace(".csv", "_BACKUP_pre_ecoli.csv")
+HEADERS    = {"Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json"}
+AMR_API    = "https://www.bv-brc.org/api/genome_amr/"
+ABX = ["ciprofloxacin", "ampicillin", "ceftazidime",
+       "gentamicin", "tetracycline", "meropenem"]
+ECOLI_RE = re.compile(r"escherichia\s+coli", re.I)
+
+def norm_pheno(v):
+    v = str(v).strip().lower()
+    if v.startswith("resist"):  return "R"
+    if v.startswith("suscept"): return "S" if "dose" not in v else None
+    return None
+
+def resolve(calls):
+    if "R" in calls: return "R"
+    if "S" in calls: return "S"
+    return None
+
+# Provenans sınıflandırması — evidence + laboratory_typing_method birlikte
+def classify_evidence(it):
+    ev  = str(it.get("evidence", "")).strip().lower()
+    lab = str(it.get("laboratory_typing_method", "")).strip().lower()
+    if "comput" in ev or "predict" in ev:
+        return "comp"
+    if ev.startswith("laboratory"):
+        return "lab"
+    # evidence boş ama gerçek bir test metodu varsa → lab kabul
+    if lab and lab not in ("", "nan", "computational method"):
+        return "lab"
+    return "unknown"
+
+def fetch_amr(abx, page=25000, max_pages=80):
+    rows, start = [], 0
+    for _ in range(max_pages):
+        payload = (f"eq(antibiotic,{abx})"
+                   f"&select(genome_id,genome_name,resistant_phenotype,"
+                   f"evidence,laboratory_typing_method)"
+                   f"&sort(+genome_id)&limit({page},{start})")
+        ok = False
+        for _a in range(3):
+            try:
+                r = requests.post(AMR_API, headers=HEADERS, data=payload, timeout=120)
+                if r.status_code in (200, 206):
+                    batch = r.json(); rows.extend(batch); ok = True; break
+                time.sleep(2)
+            except Exception:
+                time.sleep(3)
+        if not ok:
+            print(f"   ⚠️  {abx} start={start} çekilemedi"); break
+        if len(batch) < page: break
+        start += page; time.sleep(0.2)
+    return rows
+
+ev_counter  = Counter()
+gid_abx_lab = defaultdict(lambda: defaultdict(set))
+print("🌐 genome_amr yeniden çekiliyor (evidence alanı ile)...\n")
+print(f"   {'antibiyotik':<14}{'lab':>9}{'comp':>9}{'bilinmeyen':>12}")
+for abx in ABX:
+    rows = fetch_amr(abx); n_lab = n_comp = n_unk = 0
+    for it in rows:
+        if not ECOLI_RE.search(str(it.get("genome_name", ""))): continue
+        gid  = str(it.get("genome_id", "")).strip()
+        call = norm_pheno(it.get("resistant_phenotype", ""))
+        if not (gid and call): continue
+        ev_counter[str(it.get("evidence", "")).strip() or "(boş)"] += 1
+        kind = classify_evidence(it)
+        if   kind == "lab":  gid_abx_lab[gid][abx].add(call); n_lab += 1
+        elif kind == "comp": n_comp += 1
+        else:                n_unk += 1
+    print(f"   {abx:<14}{n_lab:>9,}{n_comp:>9,}{n_unk:>12,}")
+
+print("\n📊 E.coli 'evidence' alan dağılımı (ham kayıt sayısı):")
+for k, v in ev_counter.most_common(10):
+    print(f"   {k:<35s}: {v:,}")
+
+# ── Lab-only wide etiket tablosu ─────────────────────────────────────────────
+recs = []
+for gid, ad in gid_abx_lab.items():
+    row = {"Genome ID": gid}
+    for abx in ABX:
+        c = resolve(ad.get(abx, set()))
+        row[abx] = 1.0 if c == "R" else (0.0 if c == "S" else None)
+    recs.append(row)
+lab_df = pd.DataFrame(recs)
+lab_df[ABX] = lab_df[ABX].astype("float")
+print(f"\n   Lab-only benzersiz E.coli genom: {len(lab_df):,}")
+
+# ── YEDEKTEN temiz başla (karışık merge'i geri al) ──────────────────────────
+y_old = pd.read_csv(BACKUP_CSV, dtype={"Genome ID": str})
+y_old["Genome ID"] = y_old["Genome ID"].astype(str).str.strip()
+OURS = set(y_old["Genome ID"])
+ecoli_label = "ECOLI"
+m = y_old["Bacteria_Type"].astype(str).str.contains("coli|escherich", case=False, na=False)
+if m.any():
+    ecoli_label = y_old.loc[m, "Bacteria_Type"].mode().iloc[0]
+lab_df["Bacteria_Type"] = ecoli_label
+new_only = lab_df[~lab_df["Genome ID"].isin(OURS)].reset_index(drop=True)
+print(f"   Bunlardan YENİ (bizde yok): {len(new_only):,}  (önceki KARIŞIK: 72,073)")
+
+# ── Metadata'yı mevcut (karışık) labels'tan devral — yeniden çekme ──────────
+cur = pd.read_csv(LABELS_CSV, dtype={"Genome ID": str})
+cur["Genome ID"] = cur["Genome ID"].astype(str).str.strip()
+meta_cols = [c for c in ["Country", "Year", "Sequence_Type"] if c in cur.columns]
+if meta_cols:
+    meta = cur[["Genome ID"] + meta_cols].drop_duplicates("Genome ID")
+    new_only = new_only.merge(meta, on="Genome ID", how="left")
+
+# ── Birleştir + kaydet (yedek dokunulmuyor) ─────────────────────────────────
+expanded = pd.concat([y_old, new_only], ignore_index=True, sort=False)
+expanded = expanded.drop_duplicates(subset=["Genome ID"], keep="first").reset_index(drop=True)
+expanded.to_csv(LABELS_CSV, index=False)
+print(f"\n✅ TEMİZ (lab-only) etiketler → {LABELS_CSV}")
+print(f"   Satır: {len(y_old):,} → {len(expanded):,}  (+{len(expanded)-len(y_old):,})")
+
+print("\n📊 Lab-only YENİ E.coli dağılımı (Cell 3'ün göreceği):")
+print(f"   {'antibiyotik':<14}{'R':>8}{'S':>8}{'Top':>8}{'R%':>7}")
+for abx in ABX:
+    r = int((new_only[abx] == 1).sum()); s = int((new_only[abx] == 0).sum())
+    tot = r + s; pct = (r / tot * 100) if tot else 0
+    print(f"   {abx:<14}{r:>8,}{s:>8,}{tot:>8,}{pct:>6.1f}%")
+print("\n➡️  Provenans temiz. Cell 2 bittiyse Cell 3'ü çalıştır.")
