@@ -72,7 +72,8 @@
   <table id="tbl">
     <thead><tr>
       <th data-k="tur">Tür</th><th data-k="ab">Antibiyotik</th>
-      <th data-k="nr">Dirençli (R)</th><th data-k="auc">AUC (Ens.)</th>
+      <th data-k="nr">Dirençli (R)</th><th data-k="ns">Duyarlı (S)</th>
+      <th data-k="rs">R / S oranı</th><th data-k="auc">AUC (Ens.)</th>
       <th data-k="vme">VME %</th><th data-k="me">ME %</th>
       <th data-k="brier">Brier (Kal.)</th><th data-k="durum">Klinik</th>
     </tr></thead>
@@ -340,23 +341,24 @@ STAPHYLOCOCCUS  TETRACYCLINE    394    0.960   0.959  11.4  11.0    0.0407    �
    SMOTE kapalı + adaptif kalibrasyon (N<1000 → sigmoid) · GroupKFold (coğrafya) CV
 </script>
 <script>
+// [tur, ab, R, S, AUC(ens), VME, ME, Brier_cal, durum]
 const DATA = [
- ["ECOLI","Ciprofloxacin",619,0.915,16.1,14.6,0.090,"🟠"],
- ["ECOLI","Gentamicin",239,0.901,20.8,22.5,0.042,"🟠"],
- ["ECOLI","Ampicillin",1132,0.926,14.5,14.9,0.102,"🟠"],
- ["ECOLI","Ceftazidime",308,0.940,17.7,15.4,0.061,"🟠"],
- ["KLEBSIELLA","Ciprofloxacin",1258,0.956,13.5,13.4,0.079,"🟠"],
- ["KLEBSIELLA","Gentamicin",714,0.958,11.9,11.6,0.063,"🟠"],
- ["KLEBSIELLA","Ceftazidime",1355,0.961,10.0,10.4,0.061,"🟠"],
- ["PSEUDOMONAS","Ciprofloxacin",244,0.903,14.3,18.4,0.110,"🟠"],
- ["PSEUDOMONAS","Ceftazidime",215,0.795,25.6,29.9,0.164,"🟠"],
- ["SALMONELLA","Ciprofloxacin",415,0.940,12.0,12.0,0.065,"🟠"],
- ["SALMONELLA","Gentamicin",108,0.901,18.2,19.7,0.035,"🟠"],
- ["SALMONELLA","Ampicillin",701,0.897,20.0,19.5,0.101,"🟠"],
- ["SALMONELLA","Tetracycline",537,0.937,14.0,12.2,0.072,"🟠"],
- ["STAPHYLOCOCCUS","Ciprofloxacin",1222,0.961,9.8,8.5,0.064,"🟢"],
- ["STAPHYLOCOCCUS","Gentamicin",288,0.940,12.1,12.3,0.027,"🟠"],
- ["STAPHYLOCOCCUS","Tetracycline",394,0.959,11.4,11.0,0.041,"🟠"],
+ ["ECOLI","Ciprofloxacin",619,2194,0.915,16.1,14.6,0.090,"🟠"],
+ ["ECOLI","Gentamicin",239,2599,0.901,20.8,22.5,0.042,"🟠"],
+ ["ECOLI","Ampicillin",1132,1276,0.926,14.5,14.9,0.102,"🟠"],
+ ["ECOLI","Ceftazidime",308,2377,0.940,17.7,15.4,0.061,"🟠"],
+ ["KLEBSIELLA","Ciprofloxacin",1258,670,0.956,13.5,13.4,0.079,"🟠"],
+ ["KLEBSIELLA","Gentamicin",714,1421,0.958,11.9,11.6,0.063,"🟠"],
+ ["KLEBSIELLA","Ceftazidime",1355,574,0.961,10.0,10.4,0.061,"🟠"],
+ ["PSEUDOMONAS","Ciprofloxacin",244,242,0.903,14.3,18.4,0.110,"🟠"],
+ ["PSEUDOMONAS","Ceftazidime",215,333,0.795,25.6,29.9,0.164,"🟠"],
+ ["SALMONELLA","Ciprofloxacin",415,1584,0.940,12.0,12.0,0.065,"🟠"],
+ ["SALMONELLA","Gentamicin",108,1569,0.901,18.2,19.7,0.035,"🟠"],
+ ["SALMONELLA","Ampicillin",701,1668,0.897,20.0,19.5,0.101,"🟠"],
+ ["SALMONELLA","Tetracycline",537,1307,0.937,14.0,12.2,0.072,"🟠"],
+ ["STAPHYLOCOCCUS","Ciprofloxacin",1222,1651,0.961,9.8,8.5,0.064,"🟢"],
+ ["STAPHYLOCOCCUS","Gentamicin",288,2605,0.940,12.1,12.3,0.027,"🟠"],
+ ["STAPHYLOCOCCUS","Tetracycline",394,2222,0.959,11.4,11.0,0.041,"🟠"],
 ];
 const SHAP = [
  ["E. coli / Ciprofloxacin","gyrA (DNA giraz)","parC (Topoizomeraz IV)","CTX-M beta-laktamaz","→ kinolon hedef mutasyonları (Aldred 2014)"],
@@ -372,24 +374,31 @@ const tb=document.querySelector("#tbl tbody");
 function render(rows){
   tb.innerHTML="";
   rows.forEach(r=>{
+    const rs=r[2]/r[3];                         // R / S oranı
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td>
-      <td><b>${r[3].toFixed(3)}</b></td>
-      <td><span class="pill ${cls(r[4])}">${r[4].toFixed(1)}</span></td>
+    tr.innerHTML=`<td>${r[0]}</td><td>${r[1]}</td>
+      <td>${r[2].toLocaleString("tr")}</td>
+      <td>${r[3].toLocaleString("tr")}</td>
+      <td><b>${rs.toFixed(2)}</b></td>
+      <td><b>${r[4].toFixed(3)}</b></td>
       <td><span class="pill ${cls(r[5])}">${r[5].toFixed(1)}</span></td>
-      <td>${r[6].toFixed(3)}</td><td class="status">${r[7]}</td>`;
+      <td><span class="pill ${cls(r[6])}">${r[6].toFixed(1)}</span></td>
+      <td>${r[7].toFixed(3)}</td><td class="status">${r[8]}</td>`;
     tb.appendChild(tr);
   });
 }
 render(DATA);
 
-// sıralama
+// sıralama (R/S kolonu hesaplanır → özel anahtar eşlemesi)
+const KEY={0:r=>r[0],1:r=>r[1],2:r=>r[2],3:r=>r[3],4:r=>r[2]/r[3],
+           5:r=>r[4],6:r=>r[5],7:r=>r[6],8:r=>r[7],9:r=>r[8]};
 let asc={};
 document.querySelectorAll("#tbl th").forEach((th,i)=>{
   th.onclick=()=>{
     asc[i]=!asc[i];
+    const k=KEY[i];
     const s=[...DATA].sort((a,b)=>{
-      let x=a[i],y=b[i];
+      let x=k(a),y=k(b);
       if(typeof x==="number") return asc[i]?x-y:y-x;
       return asc[i]?String(x).localeCompare(y):String(y).localeCompare(x);
     });
@@ -399,9 +408,9 @@ document.querySelectorAll("#tbl th").forEach((th,i)=>{
 
 // özet kartlar
 const nModels=DATA.length;
-const both20=DATA.filter(r=>r[4]<=20&&r[5]<=20).length;
-const avgVME=(DATA.reduce((s,r)=>s+r[4],0)/nModels).toFixed(1);
-const avgAUC=(DATA.reduce((s,r)=>s+r[3],0)/nModels).toFixed(3);
+const both20=DATA.filter(r=>r[5]<=20&&r[6]<=20).length;
+const avgVME=(DATA.reduce((s,r)=>s+r[5],0)/nModels).toFixed(1);
+const avgAUC=(DATA.reduce((s,r)=>s+r[4],0)/nModels).toFixed(3);
 const cards=[
   [nModels,"Eğitilen model (tür × antibiyotik)"],
   ["12.013","Genom (5 tür)"],
